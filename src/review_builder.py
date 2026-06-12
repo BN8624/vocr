@@ -208,14 +208,20 @@ def _mapping_options_html(option_labels: dict[str, str], selected: str) -> str:
 
 
 def _merge_block(review_path: Path, merge_output: RowMergeOutput) -> str:
+    has_duplicates = merge_output.duplicate_group_count > 0
     parts = [
         '<section class="merge-summary">',
         "<h2>행 병합 검토</h2>",
+        (
+            '<p class="mapping-ok">중복 후보가 없습니다. 행은 삭제되지 않았고, 원본 행이 그대로 유지됩니다.</p>'
+            if not has_duplicates
+            else '<p class="merge-warning">중복 후보가 있습니다. 아직 행은 삭제하지 않았고, 확인 대상으로만 표시했습니다.</p>'
+        ),
         '<div class="summary merge-stats">',
         f"<div><strong>원본 행</strong><span>{merge_output.raw_row_count}</span></div>",
         f"<div><strong>병합 출력 행</strong><span>{merge_output.merged_row_count}</span></div>",
-        f"<div><strong>중복 후보 그룹</strong><span>{merge_output.duplicate_group_count}</span></div>",
-        f"<div><strong>중복 후보 행</strong><span>{merge_output.duplicate_row_count}</span></div>",
+        f"<div><strong>확인 필요 중복 그룹</strong><span>{merge_output.duplicate_group_count}</span></div>",
+        f"<div><strong>확인 필요 행</strong><span>{merge_output.duplicate_row_count}</span></div>",
         "</div>",
         '<div class="merge-links">',
         _file_link(review_path, merge_output.rows_raw_path, "rows_raw.jsonl"),
@@ -226,7 +232,13 @@ def _merge_block(review_path: Path, merge_output: RowMergeOutput) -> str:
 
     duplicate_groups = merge_output.summary.get("duplicate_groups", [])
     if duplicate_groups:
-        parts.append('<div class="duplicate-groups">')
+        parts.extend(
+            [
+                '<details class="duplicate-details">',
+                f"<summary>중복 후보 자세히 보기 ({len(duplicate_groups)}개 그룹)</summary>",
+                '<div class="duplicate-groups">',
+            ]
+        )
         for group in duplicate_groups:
             rows = group.get("rows", [])
             row_labels = ", ".join(
@@ -241,9 +253,7 @@ def _merge_block(review_path: Path, merge_output: RowMergeOutput) -> str:
                     "</article>",
                 ]
             )
-        parts.append("</div>")
-    else:
-        parts.append('<p class="empty-note">현재 확인된 중복 후보가 없습니다.</p>')
+        parts.extend(["</div>", "</details>"])
 
     parts.append("</section>")
     return "\n".join(parts)
@@ -547,6 +557,32 @@ h3 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-bottom: 10px;
+}
+.merge-warning {
+  margin: 10px 0;
+  border: 1px solid #e2a35d;
+  border-radius: 8px;
+  background: #fff5e8;
+  color: #8a3f00;
+  padding: 10px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.duplicate-details {
+  margin-top: 10px;
+}
+.duplicate-details summary {
+  min-height: 36px;
+  border: 1px solid #e2a35d;
+  border-radius: 8px;
+  background: #fff5e8;
+  color: #8a3f00;
+  padding: 8px 10px;
+  cursor: pointer;
+  font-weight: 700;
+}
+.duplicate-details[open] summary {
   margin-bottom: 10px;
 }
 .duplicate-groups {
