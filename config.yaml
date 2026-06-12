@@ -10,6 +10,16 @@ chunking:
   overlap_ratio: 0.25
   attach_header: true
 
+vision:
+  provider: gemini
+  model: gemini-3.5-flash
+  api_key_env: GEMINI_API_KEY
+  prompt_path: prompts/vision_extract_table.md
+  request_delay_seconds: 5
+  timeout_seconds: 120
+  cache_enabled: true
+  max_retries: 1
+
 review:
   html_title: Card Statement Review
   show_chunk_images: true

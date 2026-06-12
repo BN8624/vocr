@@ -9,6 +9,7 @@ from typing import Any
 from src.chunk_builder import build_chunks
 from src.page_renderer import render_pdf_pages
 from src.review_builder import build_review_html
+from src.vision_extractor import extract_chunks_with_vision, load_cached_vision_results
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
@@ -25,6 +26,16 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "html_title": "Card Statement Review",
         "show_chunk_images": True,
         "show_raw_json_paths": True,
+    },
+    "vision": {
+        "provider": "gemini",
+        "model": "gemini-3.5-flash",
+        "api_key_env": "GEMINI_API_KEY",
+        "prompt_path": "prompts/vision_extract_table.md",
+        "request_delay_seconds": 5,
+        "timeout_seconds": 120,
+        "cache_enabled": True,
+        "max_retries": 1,
     },
     "output": {
         "pages_dir": "pages",
@@ -90,6 +101,10 @@ def write_summary(
     page_count: int,
     chunk_count: int,
     review_path: Path,
+    phase: str,
+    llm_calls: int,
+    vision_ok: int,
+    vision_errors: int,
 ) -> Path:
     summary_path = output_dir / config["output"]["summary_filename"]
     summary = {
@@ -97,8 +112,10 @@ def write_summary(
         "page_count": page_count,
         "chunk_count": chunk_count,
         "review_html": str(review_path),
-        "phase": "phase_1_dry_run",
-        "llm_calls": 0,
+        "phase": phase,
+        "llm_calls": llm_calls,
+        "vision_ok": vision_ok,
+        "vision_errors": vision_errors,
     }
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -124,6 +141,17 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Rebuild rendered pages and chunks even when cached files exist.",
     )
+    parser.add_argument(
+        "--force-vision",
+        action="store_true",
+        help="Call the Vision LLM again even when cached JSON exists.",
+    )
+    parser.add_argument(
+        "--limit-chunks",
+        type=int,
+        default=None,
+        help="Process only the first N chunks with Vision LLM. Useful for API smoke tests.",
+    )
     return parser.parse_args()
 
 
@@ -141,9 +169,6 @@ def main() -> int:
     if input_pdf.suffix.lower() != ".pdf":
         logging.error("Input must be a PDF file: %s", input_pdf)
         return 2
-    if not args.dry_run:
-        logging.info("Only Phase 1 is implemented, so this run will not call any LLM API.")
-
     try:
         config = load_config(config_path)
         output_dirs = ensure_output_dirs(output_dir, config)
@@ -165,6 +190,28 @@ def main() -> int:
             force=bool(args.force),
         )
 
+        vision_results = []
+        llm_calls = 0
+        if args.dry_run:
+            logging.info("Dry-run mode: skipping Vision LLM calls.")
+            vision_results = load_cached_vision_results(chunks, output_dirs["cache"])
+            phase = "phase_1_dry_run"
+        else:
+            logging.info("Extracting rows with Gemini Vision...")
+            prompt_path = Path(str(config["vision"]["prompt_path"]))
+            if not prompt_path.is_absolute():
+                prompt_path = config_path.parent / prompt_path
+            vision_results = extract_chunks_with_vision(
+                chunks=chunks,
+                cache_dir=output_dirs["cache"],
+                prompt_path=prompt_path,
+                config=config["vision"],
+                force=bool(args.force_vision),
+                limit=args.limit_chunks,
+            )
+            llm_calls = sum(1 for result in vision_results if not result.reused)
+            phase = "phase_2_3_vision_review"
+
         logging.info("Building review HTML...")
         review_path = build_review_html(
             output_dir=output_dirs["root"],
@@ -172,6 +219,7 @@ def main() -> int:
             chunks=chunks,
             config=config["review"],
             input_pdf=input_pdf,
+            vision_results=vision_results,
         )
 
         summary_path = write_summary(
@@ -181,10 +229,14 @@ def main() -> int:
             page_count=len(pages),
             chunk_count=len(chunks),
             review_path=review_path,
+            phase=phase,
+            llm_calls=llm_calls,
+            vision_ok=sum(1 for result in vision_results if result.data is not None),
+            vision_errors=sum(1 for result in vision_results if result.status == "error"),
         )
 
     except Exception as exc:
-        logging.error("Could not complete Phase 1: %s", exc)
+        logging.error("Could not complete pipeline: %s", exc)
         return 1
 
     logging.info("Done. Review file: %s", review_path)

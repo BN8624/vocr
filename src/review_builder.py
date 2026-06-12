@@ -7,6 +7,7 @@ from typing import Any
 
 from src.chunk_builder import ChunkImage
 from src.page_renderer import PageImage
+from src.vision_extractor import VisionResult
 
 
 def build_review_html(
@@ -15,6 +16,7 @@ def build_review_html(
     chunks: list[ChunkImage],
     config: dict[str, Any],
     input_pdf: Path,
+    vision_results: list[VisionResult] | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     review_path = output_dir / "review.html"
@@ -23,6 +25,10 @@ def build_review_html(
     chunks_by_page: dict[int, list[ChunkImage]] = defaultdict(list)
     for chunk in chunks:
         chunks_by_page[chunk.page_number].append(chunk)
+
+    vision_by_chunk = {result.chunk_id: result for result in vision_results or []}
+    vision_ok = sum(1 for result in vision_by_chunk.values() if result.data is not None)
+    vision_errors = sum(1 for result in vision_by_chunk.values() if result.status == "error")
 
     html = [
         "<!doctype html>",
@@ -40,7 +46,7 @@ def build_review_html(
         f"<div><strong>Input</strong><span>{escape(str(input_pdf))}</span></div>",
         f"<div><strong>Pages</strong><span>{len(pages)}</span></div>",
         f"<div><strong>Chunks</strong><span>{len(chunks)}</span></div>",
-        "<div><strong>LLM calls</strong><span>0</span></div>",
+        f"<div><strong>Vision JSON</strong><span>{vision_ok} ok / {vision_errors} errors</span></div>",
         "</section>",
     ]
 
@@ -64,6 +70,7 @@ def build_review_html(
 
         for chunk in chunks_by_page.get(page.page_number, []):
             chunk_src = _relative_src(review_path, chunk.image_path)
+            vision = vision_by_chunk.get(chunk.chunk_id)
             html.extend(
                 [
                     '<article class="chunk">',
@@ -77,6 +84,7 @@ def build_review_html(
                     "<dt>Status</dt>",
                     f"<dd>{'reused from cache' if chunk.reused else 'created'}</dd>",
                     "</dl>",
+                    _vision_block(review_path, vision),
                     "</article>",
                 ]
             )
@@ -86,6 +94,108 @@ def build_review_html(
     html.extend(["</main>", "</body>", "</html>"])
     review_path.write_text("\n".join(html), encoding="utf-8")
     return review_path
+
+
+def _vision_block(review_path: Path, result: VisionResult | None) -> str:
+    if result is None:
+        return '<section class="vision empty"><h4>Vision Extraction</h4><p>No cached extraction yet.</p></section>'
+
+    if result.data is None:
+        links = []
+        if result.error_path:
+            links.append(_file_link(review_path, result.error_path, "error json"))
+        if result.raw_text_path:
+            links.append(_file_link(review_path, result.raw_text_path, "raw text"))
+        link_html = " ".join(links) if links else ""
+        return (
+            '<section class="vision error">'
+            "<h4>Vision Extraction</h4>"
+            f"<p>Status: {escape(result.status)} {link_html}</p>"
+            "</section>"
+        )
+
+    data = result.data
+    header = [str(value) for value in data.get("header", [])]
+    rows = [row for row in data.get("rows", []) if isinstance(row, dict)]
+    totals = [total for total in data.get("totals", []) if isinstance(total, dict)]
+    needs_review = bool(data.get("needs_review"))
+
+    parts = [
+        '<section class="vision">',
+        "<h4>Vision Extraction</h4>",
+        '<div class="vision-status">',
+        f"<span>Status: {escape(result.status)}</span>",
+        f"<span>Rows: {len(rows)}</span>",
+        f"<span>Totals: {len(totals)}</span>",
+        f"<span>{'Needs review' if needs_review else 'No chunk-level warning'}</span>",
+        _file_link(review_path, result.cache_path, "json"),
+        "</div>",
+    ]
+    if data.get("review_reason"):
+        parts.append(f'<p class="warning">{escape(str(data["review_reason"]))}</p>')
+    if data.get("notes"):
+        parts.append(f'<p class="note">{escape(str(data["notes"]))}</p>')
+
+    parts.append(_rows_table(header, rows))
+    if totals:
+        parts.append(_totals_table(totals))
+    parts.append("</section>")
+    return "\n".join(parts)
+
+
+def _rows_table(header: list[str], rows: list[dict[str, Any]]) -> str:
+    if not rows:
+        return '<p class="empty-note">No transaction rows found in this chunk.</p>'
+
+    max_cells = max([len(header)] + [len(row.get("cells", [])) for row in rows])
+    labels = header + [f"col_{index}" for index in range(len(header) + 1, max_cells + 1)]
+    head = "".join(f"<th>{escape(label)}</th>" for label in labels)
+    body_rows = []
+    for row in rows:
+        cells = [str(value) for value in row.get("cells", [])]
+        padded = cells + [""] * (max_cells - len(cells))
+        row_class = ' class="needs-review"' if row.get("needs_review") else ""
+        reason = str(row.get("review_reason") or row.get("confidence_note") or "")
+        tds = "".join(f"<td>{escape(value)}</td>" for value in padded)
+        local_index = escape(str(row.get("local_row_index", "")))
+        body_rows.append(
+            f"<tr{row_class}><th>{local_index}</th>{tds}"
+            f"<td>{escape(reason)}</td></tr>"
+        )
+    return (
+        '<div class="table-wrap"><table class="extract-table">'
+        f"<thead><tr><th>#</th>{head}<th>review</th></tr></thead>"
+        f"<tbody>{''.join(body_rows)}</tbody>"
+        "</table></div>"
+    )
+
+
+def _totals_table(totals: list[dict[str, Any]]) -> str:
+    rows = []
+    for total in totals:
+        row_class = ' class="needs-review"' if total.get("needs_review") else ""
+        rows.append(
+            f"<tr{row_class}>"
+            f"<td>{escape(str(total.get('label', '')))}</td>"
+            f"<td>{escape(str(total.get('value_text', '')))}</td>"
+            f"<td>{escape(str(total.get('amount', '')))}</td>"
+            f"<td>{escape(str(total.get('review_reason', '')))}</td>"
+            "</tr>"
+        )
+    return (
+        '<div class="table-wrap"><table class="totals-table">'
+        "<thead><tr><th>Total label</th><th>Value</th><th>Amount</th><th>Review</th></tr></thead>"
+        f"<tbody>{''.join(rows)}</tbody>"
+        "</table></div>"
+    )
+
+
+def _file_link(review_path: Path, target: Path, label: str) -> str:
+    try:
+        href = _relative_src(review_path, target)
+    except ValueError:
+        href = str(target)
+    return f'<a class="file-link" href="{escape(href)}">{escape(label)}</a>'
 
 
 def _relative_src(base_file: Path, target: Path) -> str:
@@ -210,6 +320,80 @@ figcaption {
 }
 .meta dd {
   margin: 0;
+}
+.vision {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
+.vision h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+.vision p {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.vision-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.vision-status span,
+.file-link {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 7px;
+  background: #fbfbf9;
+}
+.file-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.warning {
+  color: #9f3a2f;
+  font-weight: 700;
+}
+.note,
+.empty-note {
+  color: var(--muted);
+}
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+table {
+  width: 100%;
+  min-width: 520px;
+  border-collapse: collapse;
+  font-size: 12px;
+  background: #fff;
+}
+th,
+td {
+  border-bottom: 1px solid var(--line);
+  border-right: 1px solid var(--line);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: #eef4f1;
+  font-weight: 700;
+}
+tr.needs-review td,
+tr.needs-review th {
+  background: #fff5e8;
 }
 @media (max-width: 900px) {
   main {

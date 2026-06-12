@@ -11,6 +11,9 @@
 - It does not call any Vision LLM API.
 - Sample PDFs in `견본/` use the filename suffix as expected page count, and
   `tests/smoke_phase1_samples.py` verifies that Phase 1 renders each one.
+- Phase 2/3 extraction and review are implemented: non-dry-run calls Gemini
+  Vision, saves `output/cache/*.vision.json`, and shows extracted rows/cells in
+  `review.html` next to chunk images.
 
 ---
 

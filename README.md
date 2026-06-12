@@ -28,6 +28,31 @@ The command writes:
 
 Use `--force` to rebuild cached page and chunk images.
 
+## Phase 2 and 3 Vision extraction
+
+Set a Gemini API key in the environment or in local `.env`:
+
+```text
+GEMINI_API_KEY=your_key_here
+```
+
+Then run without `--dry-run`:
+
+```bash
+python main.py --input 견본/삼성카드_1.pdf --output output
+```
+
+For a small API smoke test, process only the first chunk:
+
+```bash
+python main.py --input 견본/삼성카드_1.pdf --output output --limit-chunks 1
+```
+
+Vision responses are cached under `output/cache/*.vision.json`. Re-running
+uses cache unless `--force-vision` is passed. `review.html` shows each chunk
+image next to extracted headers, raw cells, totals, review flags, and JSON
+cache links.
+
 ## Sample smoke test
 
 Sample PDFs live in `견본/`. The trailing number in each filename is the
