@@ -20,6 +20,16 @@ Image-based Korean credit card statement PDFs를 Vision LLM으로 읽고, 사람
 - 검증 결과 생성
 - `result.xlsx` export
 
+## 중복 행 처리
+
+겹침 청크에서 같은 거래가 반복 추출되는 것은 정상입니다. `row_merger.py`는 같은 페이지의 동일한 raw cells가 서로 다른 청크에서 반복되면 대표행 1개를 `representative`로 정하고, 나머지는 `duplicate_excluded`로 표시합니다.
+
+- `representative`: 거래 정규화, 검산, `전체명세` 시트에 사용
+- `duplicate_excluded`: 거래 합계에서는 제외, `원본셀` 시트에는 보존
+- 애매한 경우: 삭제하지 않고 `needs_review`로 남기는 방향 유지
+
+이렇게 해서 원본 보존과 합계 오염 방지를 같이 지킵니다.
+
 ## 설치
 
 ```bash

@@ -25,7 +25,7 @@ Implemented:
 
 - Phase 1: PDF page rendering and chunk building
 - Phase 2/3: Gemini Vision extraction, cache, and raw row review
-- Phase 4: conservative row collection and duplicate candidate marking
+- Phase 4: conservative row collection, exact duplicate representative selection, and raw-cell preservation for excluded duplicates
 - Phase 5: column mapping suggestions and mobile-friendly mapping UI
 - Phase 5B: saved mapping profile reuse from `profiles/*.json` or `--mapping-profile`
 - Phase 5C: `serve_review.py` review server for saving confirmed mappings directly from iPhone/Browser
@@ -175,6 +175,7 @@ Implemented checks include:
 - card label merchant-like contamination
 - row cell count consistency
 - duplicate candidate propagation from merge step
+- exact duplicate representative rows are used for transactions; excluded duplicates remain in raw cells only
 
 Checksum status meanings:
 
@@ -231,8 +232,8 @@ Keep `.gitignore` enforcing those boundaries.
 
 Good next improvements:
 
-1. Add a targeted total/summary-page extraction pass so totals on later pages can be captured without reprocessing every body chunk.
-2. Add a small CLI command to list saved mapping profiles.
-3. Add validation tests with tiny fixture JSONL files.
-4. Add profile matching by stronger layout fingerprint, not only header/group id.
-5. Improve Excel formatting and add a simple summary sheet if needed.
+1. Add user-selected checksum totals so validation uses the total confirmed in review, not any automatically detected candidate.
+2. Add column-level validation for date parse rate, amount parse rate, merchant numeric rate, card-label uniqueness, and row cell-count distribution.
+3. Improve profile matching by stronger table signatures, not only header/group id.
+4. Add a targeted total/summary-page extraction pass so totals on later pages can be captured without reprocessing every body chunk.
+5. Add more validation tests with tiny fixture JSONL files.

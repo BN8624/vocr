@@ -21,6 +21,7 @@ class RowMergeOutput:
     duplicate_group_count: int
     duplicate_row_count: int
     duplicate_index: dict[tuple[str, int], str]
+    duplicate_decision_index: dict[tuple[str, int], dict[str, Any]]
     summary: dict[str, Any]
 
 
@@ -42,7 +43,8 @@ def build_row_outputs(
     )
     duplicate_groups = _find_duplicate_candidates(raw_rows)
     duplicate_index = _duplicate_index(duplicate_groups)
-    merged_rows = [_with_merge_metadata(row, duplicate_index) for row in raw_rows]
+    duplicate_decision_index = _duplicate_decision_index(duplicate_groups)
+    merged_rows = [_with_merge_metadata(row, duplicate_decision_index) for row in raw_rows]
 
     rows_raw_path = merged_dir / "rows_raw.jsonl"
     rows_merged_path = merged_dir / "rows_merged.jsonl"
@@ -51,13 +53,26 @@ def build_row_outputs(
     _write_jsonl(rows_raw_path, raw_rows)
     _write_jsonl(rows_merged_path, merged_rows)
 
+    duplicate_excluded_count = sum(len(group.get("excluded_rows", [])) for group in duplicate_groups)
+    duplicate_review_count = sum(
+        1
+        for group in duplicate_groups
+        for row in group.get("rows", [])
+        if row.get("decision") == "needs_review"
+    )
+    representative_count = sum(1 for group in duplicate_groups if group.get("representative"))
+
     summary = {
         "schema_version": "1.0",
         "raw_row_count": len(raw_rows),
         "merged_row_count": len(merged_rows),
+        "transaction_candidate_count": len(raw_rows) - duplicate_excluded_count,
         "duplicate_group_count": len(duplicate_groups),
         "duplicate_row_count": sum(len(group["rows"]) for group in duplicate_groups),
-        "strategy": "phase_4_candidate_only_no_rows_removed",
+        "representative_count": representative_count,
+        "duplicate_excluded_count": duplicate_excluded_count,
+        "duplicate_review_count": duplicate_review_count,
+        "strategy": "phase_4_representative_selection_exact_duplicates",
         "duplicate_groups": duplicate_groups,
         "outputs": {
             "rows_raw": str(rows_raw_path),
@@ -75,6 +90,7 @@ def build_row_outputs(
         duplicate_group_count=len(duplicate_groups),
         duplicate_row_count=summary["duplicate_row_count"],
         duplicate_index=duplicate_index,
+        duplicate_decision_index=duplicate_decision_index,
         summary=summary,
     )
 
@@ -89,6 +105,7 @@ def load_merge_output(merged_dir: Path) -> RowMergeOutput | None:
     summary = json.loads(summary_path.read_text(encoding="utf-8"))
     duplicate_groups = summary.get("duplicate_groups", [])
     duplicate_index = _duplicate_index(duplicate_groups)
+    duplicate_decision_index = _duplicate_decision_index(duplicate_groups)
     return RowMergeOutput(
         rows_raw_path=rows_raw_path,
         rows_merged_path=rows_merged_path,
@@ -98,6 +115,7 @@ def load_merge_output(merged_dir: Path) -> RowMergeOutput | None:
         duplicate_group_count=int(summary.get("duplicate_group_count", 0)),
         duplicate_row_count=int(summary.get("duplicate_row_count", 0)),
         duplicate_index=duplicate_index,
+        duplicate_decision_index=duplicate_decision_index,
         summary=summary,
     )
 
@@ -181,21 +199,53 @@ def _find_duplicate_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any
         if len(candidates) < 2 or len(chunk_ids) < 2:
             continue
 
+        auto_resolve = _looks_like_overlap_duplicate(candidates)
+        representative = _choose_representative(candidates) if auto_resolve else None
+        representative_key = _row_key(representative) if representative else None
+        row_entries = []
+        for row in candidates:
+            if not auto_resolve:
+                decision = "needs_review"
+            else:
+                decision = "representative" if _row_key(row) == representative_key else "duplicate_excluded"
+            row_entries.append(
+                {
+                    "chunk_id": row["source"]["chunk_id"],
+                    "local_row_index": row["source"]["local_row_index"],
+                    "cells": row["raw"]["cells"],
+                    "decision": decision,
+                    "score": list(_representative_score(row)),
+                }
+            )
+
         groups.append(
             {
                 "group_id": f"dup_{group_number:03d}",
                 "page": page,
-                "decision": "needs_review",
-                "reason": "서로 다른 청크에서 같은 raw cells가 반복 추출되었습니다. 아직 자동 삭제하지 않습니다.",
+                "decision": "auto_representative_selected" if auto_resolve else "needs_review",
+                "reason": (
+                    "서로 다른 겹침 청크에서 같은 raw cells가 반복되어 대표행 1개만 거래로 사용합니다. 제외행은 원본셀 보존용으로만 남깁니다."
+                    if auto_resolve
+                    else "서로 떨어진 청크에서 같은 raw cells가 발견되었습니다. 실제 반복 거래일 수 있어 자동 제외하지 않습니다."
+                ),
                 "fingerprint": fingerprint,
-                "rows": [
+                "representative": (
                     {
-                        "chunk_id": row["source"]["chunk_id"],
-                        "local_row_index": row["source"]["local_row_index"],
-                        "cells": row["raw"]["cells"],
+                        "chunk_id": representative["source"]["chunk_id"],
+                        "local_row_index": representative["source"]["local_row_index"],
                     }
-                    for row in candidates
+                    if representative
+                    else {}
+                ),
+                "excluded_rows": [
+                    {
+                        "chunk_id": row["chunk_id"],
+                        "local_row_index": row["local_row_index"],
+                    }
+                    for row in row_entries
+                    if row["decision"] == "duplicate_excluded"
                 ],
+                "rows": row_entries,
             }
         )
         group_number += 1
@@ -204,24 +254,27 @@ def _find_duplicate_candidates(rows: list[dict[str, Any]]) -> list[dict[str, Any
 
 def _with_merge_metadata(
     row: dict[str, Any],
-    duplicate_index: dict[tuple[str, int], str],
+    duplicate_decision_index: dict[tuple[str, int], dict[str, Any]],
 ) -> dict[str, Any]:
     copied = json.loads(json.dumps(row, ensure_ascii=False))
     source = copied["source"]
     key = (source["chunk_id"], int(source["local_row_index"]))
-    group_id = duplicate_index.get(key, "")
+    duplicate = duplicate_decision_index.get(key, {})
+    group_id = str(duplicate.get("group_id", ""))
+    decision = str(duplicate.get("decision", ""))
     if group_id:
         copied["merge"] = {
-            "decision": "needs_review",
+            "decision": decision,
             "duplicate_group_id": group_id,
-            "review_reason": "겹치는 청크에서 반복 추출된 중복 후보입니다.",
+            "review_reason": _merge_reason(decision, group_id),
         }
-        copied["quality"]["needs_review"] = True
-        existing = copied["quality"].get("review_reason", "")
-        duplicate_reason = f"중복 후보 {group_id}"
-        copied["quality"]["review_reason"] = (
-            f"{existing}; {duplicate_reason}" if existing else duplicate_reason
-        )
+        if decision == "needs_review":
+            copied["quality"]["needs_review"] = True
+            existing = copied["quality"].get("review_reason", "")
+            duplicate_reason = f"중복 확인필요 {group_id}"
+            copied["quality"]["review_reason"] = (
+                f"{existing}; {duplicate_reason}" if existing else duplicate_reason
+            )
     return copied
 
 
@@ -232,6 +285,66 @@ def _duplicate_index(duplicate_groups: list[dict[str, Any]]) -> dict[tuple[str, 
         for row in group.get("rows", []):
             index[(str(row["chunk_id"]), int(row["local_row_index"]))] = group_id
     return index
+
+
+def _duplicate_decision_index(
+    duplicate_groups: list[dict[str, Any]],
+) -> dict[tuple[str, int], dict[str, Any]]:
+    index: dict[tuple[str, int], dict[str, Any]] = {}
+    for group in duplicate_groups:
+        group_id = str(group.get("group_id", ""))
+        for row in group.get("rows", []):
+            index[(str(row["chunk_id"]), int(row["local_row_index"]))] = {
+                "group_id": group_id,
+                "decision": str(row.get("decision", "needs_review")),
+            }
+    return index
+
+
+def _choose_representative(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return max(rows, key=_representative_score)
+
+
+def _representative_score(row: dict[str, Any]) -> tuple[int, int, int, int, int]:
+    quality = row.get("quality", {})
+    raw = row.get("raw", {})
+    cells = [str(value).strip() for value in raw.get("cells", [])]
+    source = row.get("source", {})
+    return (
+        0 if quality.get("needs_review") else 1,
+        sum(1 for cell in cells if cell),
+        len(str(raw.get("line_text", ""))),
+        len(cells),
+        -int(source.get("local_row_index", 0) or 0),
+    )
+
+
+def _row_key(row: dict[str, Any]) -> tuple[str, int]:
+    source = row["source"]
+    return (str(source["chunk_id"]), int(source["local_row_index"]))
+
+
+def _looks_like_overlap_duplicate(rows: list[dict[str, Any]]) -> bool:
+    indexes = [_chunk_index(str(row.get("source", {}).get("chunk_id", ""))) for row in rows]
+    if any(index is None for index in indexes):
+        return False
+    unique_indexes = sorted({int(index) for index in indexes if index is not None})
+    return bool(unique_indexes) and unique_indexes[-1] - unique_indexes[0] <= 1
+
+
+def _chunk_index(chunk_id: str) -> int | None:
+    match = re.search(r"_chunk_(\d+)$", chunk_id)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def _merge_reason(decision: str, group_id: str) -> str:
+    if decision == "representative":
+        return f"겹침 청크 중복 그룹 {group_id}의 대표행입니다."
+    if decision == "duplicate_excluded":
+        return f"겹침 청크 중복 그룹 {group_id}에서 대표행이 선택되어 거래 합계와 전체명세에서는 제외됩니다."
+    return f"겹침 청크 중복 그룹 {group_id} 확인이 필요합니다."
 
 
 def _fingerprint(cells: list[str]) -> str:

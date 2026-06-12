@@ -36,9 +36,11 @@ def build_transactions(
         return None
 
     merged_dir.mkdir(parents=True, exist_ok=True)
-    rows = _read_jsonl(merge_output.rows_merged_path)
+    source_rows = _read_jsonl(merge_output.rows_merged_path)
+    rows = [row for row in source_rows if _should_normalize_row(row)]
     mapping_index = _mapping_index(mapping_output)
     transactions = [_normalize_row(row, mapping_index) for row in rows]
+    duplicate_excluded_count = len(source_rows) - len(rows)
 
     transactions_path = merged_dir / "transactions.jsonl"
     summary_path = merged_dir / "normalization_summary.json"
@@ -55,7 +57,9 @@ def build_transactions(
 
     summary = {
         "schema_version": "1.0",
+        "source_row_count": len(source_rows),
         "transaction_count": len(transactions),
+        "duplicate_excluded_count": duplicate_excluded_count,
         "review_count": len(review_rows),
         "amount_total": amount_total,
         "billing_amount_total": billing_total,
@@ -81,6 +85,11 @@ def build_transactions(
         billing_amount_total=billing_total,
         summary=summary,
     )
+
+
+def _should_normalize_row(row: dict[str, Any]) -> bool:
+    merge = row.get("merge", {})
+    return str(merge.get("decision", "keep")) != "duplicate_excluded"
 
 
 def load_normalization_output(merged_dir: Path) -> NormalizationOutput | None:

@@ -308,6 +308,7 @@ def main() -> int:
                 validation_output=validation_output,
                 output_dir=output_dirs["root"],
                 filename=str(config.get("export", {}).get("excel_filename", "result.xlsx")),
+                source_rows_path=merge_output.rows_merged_path if merge_output else None,
             )
             phase = "phase_8_excel_export"
         else:

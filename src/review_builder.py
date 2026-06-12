@@ -515,19 +515,24 @@ def _mapping_options_html(option_labels: dict[str, str], selected: str) -> str:
 
 def _merge_block(review_path: Path, merge_output: RowMergeOutput) -> str:
     has_duplicates = merge_output.duplicate_group_count > 0
+    representative_count = int(merge_output.summary.get("representative_count", 0))
+    duplicate_excluded_count = int(merge_output.summary.get("duplicate_excluded_count", 0))
+    duplicate_review_count = int(merge_output.summary.get("duplicate_review_count", 0))
     parts = [
         '<section class="merge-summary">',
         "<h2>행 병합 검토</h2>",
         (
-            '<p class="mapping-ok">중복 후보가 없습니다. 행은 삭제되지 않았고, 원본 행이 그대로 유지됩니다.</p>'
+            '<p class="mapping-ok">중복 후보가 없습니다. 원본 행을 그대로 거래 후보로 사용합니다.</p>'
             if not has_duplicates
-            else '<p class="merge-warning">중복 후보가 있습니다. 아직 행은 삭제하지 않았고, 확인 대상으로만 표시했습니다.</p>'
+            else '<p class="mapping-ok">겹침 청크의 같은 raw cells는 대표행 1개만 거래로 사용하고, 제외행은 원본셀 보존용으로 남깁니다.</p>'
         ),
         '<div class="summary merge-stats">',
         f"<div><strong>원본 행</strong><span>{merge_output.raw_row_count}</span></div>",
-        f"<div><strong>병합 출력 행</strong><span>{merge_output.merged_row_count}</span></div>",
-        f"<div><strong>확인 필요 중복 그룹</strong><span>{merge_output.duplicate_group_count}</span></div>",
-        f"<div><strong>확인 필요 행</strong><span>{merge_output.duplicate_row_count}</span></div>",
+        f"<div><strong>거래 후보</strong><span>{merge_output.summary.get('transaction_candidate_count', merge_output.merged_row_count)}</span></div>",
+        f"<div><strong>중복 그룹</strong><span>{merge_output.duplicate_group_count}</span></div>",
+        f"<div><strong>대표행</strong><span>{representative_count}</span></div>",
+        f"<div><strong>원본셀 보존 제외행</strong><span>{duplicate_excluded_count}</span></div>",
+        f"<div><strong>확인필요 중복</strong><span>{duplicate_review_count}</span></div>",
         "</div>",
         '<div class="merge-links">',
         _file_link(review_path, merge_output.rows_raw_path, "rows_raw.jsonl"),
@@ -541,20 +546,27 @@ def _merge_block(review_path: Path, merge_output: RowMergeOutput) -> str:
         parts.extend(
             [
                 '<details class="duplicate-details">',
-                f"<summary>중복 후보 자세히 보기 ({len(duplicate_groups)}개 그룹)</summary>",
+                f"<summary>중복 처리 자세히 보기 ({len(duplicate_groups)}개 그룹)</summary>",
                 '<div class="duplicate-groups">',
             ]
         )
         for group in duplicate_groups:
             rows = group.get("rows", [])
             row_labels = ", ".join(
-                f"{row.get('chunk_id')} 행 {row.get('local_row_index')}" for row in rows
+                f"{row.get('chunk_id')} 행 {row.get('local_row_index')}={row.get('decision', '')}" for row in rows
             )
+            representative = group.get("representative", {})
+            representative_label = ""
+            if isinstance(representative, dict) and representative:
+                representative_label = (
+                    f"{representative.get('chunk_id')} 행 {representative.get('local_row_index')}"
+                )
             parts.extend(
                 [
                     '<article class="duplicate-group">',
                     f"<h3>{escape(str(group.get('group_id', '중복 후보')))}</h3>",
                     f"<p>{escape(str(group.get('reason', '')))}</p>",
+                    f"<p><strong>대표행:</strong> {escape(representative_label)}</p>",
                     f"<p><strong>대상:</strong> {escape(row_labels)}</p>",
                     "</article>",
                 ]
@@ -610,7 +622,8 @@ def _vision_block(
         parts.append(f'<p class="note">{escape(str(data["notes"]))}</p>')
 
     duplicate_index = merge_output.duplicate_index if merge_output else {}
-    parts.append(_rows_table(header, rows, result.chunk_id, duplicate_index))
+    duplicate_decision_index = merge_output.duplicate_decision_index if merge_output else {}
+    parts.append(_rows_table(header, rows, result.chunk_id, duplicate_index, duplicate_decision_index))
     if totals:
         parts.append(_totals_table(totals))
     parts.append("</section>")
@@ -622,6 +635,7 @@ def _rows_table(
     rows: list[dict[str, Any]],
     chunk_id: str,
     duplicate_index: dict[tuple[str, int], str],
+    duplicate_decision_index: dict[tuple[str, int], dict[str, Any]],
 ) -> str:
     if not rows:
         return '<p class="empty-note">이 청크에서 거래 행을 찾지 못했습니다.</p>'
@@ -635,8 +649,10 @@ def _rows_table(
         cells = [str(value) for value in row.get("cells", [])]
         padded = cells + [""] * (max_cells - len(cells))
         local_index = escape(str(row.get("local_row_index", "")))
-        duplicate_group = duplicate_index.get((chunk_id, _safe_int(row.get("local_row_index"), 0)), "")
-        row_needs_review = bool(row.get("needs_review") or duplicate_group)
+        duplicate_key = (chunk_id, _safe_int(row.get("local_row_index"), 0))
+        duplicate_group = duplicate_index.get(duplicate_key, "")
+        duplicate_decision = str(duplicate_decision_index.get(duplicate_key, {}).get("decision", ""))
+        row_needs_review = bool(row.get("needs_review") or duplicate_decision == "needs_review")
         row_class = ' class="needs-review"' if row_needs_review else ""
         reason = str(row.get("review_reason") or row.get("confidence_note") or "")
         tds = "".join(f"<td>{escape(value)}</td>" for value in padded)
@@ -646,7 +662,9 @@ def _rows_table(
         elif reason:
             review_parts.append(escape(reason))
         if duplicate_group:
-            review_parts.append(f'<span class="review-badge duplicate">중복후보 {escape(duplicate_group)}</span>')
+            review_parts.append(
+                f'<span class="review-badge duplicate">{escape(_merge_decision_label(duplicate_decision))} {escape(duplicate_group)}</span>'
+            )
         review_value = " ".join(review_parts)
         body_rows.append(
             f"<tr{row_class}><th>{local_index}</th>{tds}"
@@ -737,6 +755,15 @@ def _safe_int(value: Any, fallback: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def _merge_decision_label(decision: str) -> str:
+    labels = {
+        "representative": "대표행",
+        "duplicate_excluded": "원본셀 보존",
+        "needs_review": "중복 확인필요",
+    }
+    return labels.get(decision, "중복")
 
 
 def _file_link(review_path: Path, target: Path, label: str) -> str:

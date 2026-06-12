@@ -20,6 +20,7 @@ def export_excel(
     validation_output: ValidationOutput | None,
     output_dir: Path,
     filename: str = "result.xlsx",
+    source_rows_path: Path | None = None,
 ) -> ExcelExportOutput | None:
     if not validation_output or not validation_output.validated_transactions_path.exists():
         return None
@@ -35,6 +36,7 @@ def export_excel(
         ) from exc
 
     rows = _read_jsonl(validation_output.validated_transactions_path)
+    raw_rows = _read_jsonl(source_rows_path) if source_rows_path and source_rows_path.exists() else rows
     workbook = Workbook()
     default_sheet = workbook.active
     workbook.remove(default_sheet)
@@ -48,7 +50,7 @@ def export_excel(
 
     _write_transactions(ws_transactions, rows)
     _write_checksum(ws_checksum, summary)
-    _write_raw_cells(ws_raw, rows)
+    _write_raw_cells(ws_raw, raw_rows)
     _write_extra_fields(ws_extra, rows)
     review_count = _write_review_rows(ws_review, rows)
 

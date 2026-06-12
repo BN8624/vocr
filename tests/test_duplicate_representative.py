@@ -1,0 +1,184 @@
+from __future__ import annotations
+
+import json
+import sys
+import tempfile
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from src.chunk_builder import ChunkImage
+from src.normalizer import build_transactions
+from src.profile_store import MappingOutput
+from src.row_merger import build_row_outputs
+from src.vision_extractor import VisionResult
+
+
+def main() -> int:
+    with tempfile.TemporaryDirectory() as temp_dir:
+        root = Path(temp_dir)
+        output_dir = root / "output"
+        merged_dir = output_dir / "merged"
+        output_dir.mkdir()
+
+        chunks = [
+            _chunk("page_001_chunk_01", root / "chunk_01.png", 1),
+            _chunk("page_001_chunk_02", root / "chunk_02.png", 2),
+        ]
+        vision_results = [
+            _vision(
+                "page_001_chunk_01",
+                [
+                    ["03.14", "the Purple", "쿠팡", "10,000", "10,000"],
+                    ["03.15", "the Purple", "편의점", "5,000", "5,000"],
+                ],
+            ),
+            _vision(
+                "page_001_chunk_02",
+                [
+                    ["03.14", "the Purple", "쿠팡", "10,000", "10,000"],
+                ],
+            ),
+        ]
+
+        merge_output = build_row_outputs(
+            vision_results=vision_results,
+            chunks=chunks,
+            input_pdf=root / "sample.pdf",
+            output_dir=output_dir,
+            merged_dir=merged_dir,
+        )
+
+        merged_rows = _read_jsonl(merge_output.rows_merged_path)
+        decisions = [row["merge"]["decision"] for row in merged_rows]
+        assert decisions.count("representative") == 1, decisions
+        assert decisions.count("duplicate_excluded") == 1, decisions
+        assert decisions.count("keep") == 1, decisions
+        assert merge_output.summary["duplicate_excluded_count"] == 1
+        assert merge_output.summary["transaction_candidate_count"] == 2
+
+        mapping_output = MappingOutput(
+            suggestions_path=merged_dir / "mapping_suggestions.json",
+            profile_dir=root / "profiles",
+            table_groups=[_mapping_group()],
+            option_labels={},
+            applied_profiles=[],
+        )
+        normalization_output = build_transactions(
+            merge_output=merge_output,
+            mapping_output=mapping_output,
+            merged_dir=merged_dir,
+        )
+
+        assert normalization_output is not None
+        assert normalization_output.transaction_count == 2
+        assert normalization_output.amount_total == 15000
+        assert normalization_output.summary["duplicate_excluded_count"] == 1
+
+        _assert_non_adjacent_duplicates_need_review(root / "non_adjacent")
+
+    print("duplicate representative test passed")
+    return 0
+
+
+def _chunk(chunk_id: str, image_path: Path, chunk_index: int) -> ChunkImage:
+    return ChunkImage(
+        chunk_id=chunk_id,
+        page_number=1,
+        chunk_index=chunk_index,
+        image_path=image_path,
+        width=100,
+        height=100,
+        source_y_start=0,
+        source_y_end=100,
+        header_y_start=0,
+        header_y_end=10,
+        reused=False,
+    )
+
+
+def _vision(chunk_id: str, cells_list: list[list[str]]) -> VisionResult:
+    return VisionResult(
+        chunk_id=chunk_id,
+        page_number=1,
+        cache_path=Path(f"{chunk_id}.vision.json"),
+        status="cached",
+        data={
+            "schema_version": "1.0",
+            "page": 1,
+            "chunk_id": chunk_id,
+            "header": ["이용일", "이용카드", "이용가맹점", "이용금액", "결제원금"],
+            "rows": [
+                {
+                    "local_row_index": index,
+                    "cells": cells,
+                    "line_text": " ".join(cells),
+                    "needs_review": False,
+                    "review_reason": "",
+                    "confidence_note": "",
+                }
+                for index, cells in enumerate(cells_list, start=1)
+            ],
+            "totals": [],
+            "needs_review": False,
+            "review_reason": "",
+            "notes": "",
+        },
+        reused=True,
+    )
+
+
+def _mapping_group() -> dict[str, object]:
+    header = ["이용일", "이용카드", "이용가맹점", "이용금액", "결제원금"]
+    fields = ["date", "card_label", "merchant", "amount", "billing_amount"]
+    return {
+        "group_id": "이용일|이용카드|이용가맹점|이용금액|결제원금",
+        "row_count": 3,
+        "header": header,
+        "columns": [
+            {
+                "column_index": index,
+                "column_id": f"col_{index + 1}",
+                "header": label,
+                "suggested_field": fields[index],
+                "selected_field": fields[index],
+                "requires_review": False,
+            }
+            for index, label in enumerate(header)
+        ],
+    }
+
+
+def _assert_non_adjacent_duplicates_need_review(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    chunks = [
+        _chunk("page_001_chunk_01", root / "chunk_01.png", 1),
+        _chunk("page_001_chunk_03", root / "chunk_03.png", 3),
+    ]
+    vision_results = [
+        _vision("page_001_chunk_01", [["03.14", "the Purple", "쿠팡", "10,000", "10,000"]]),
+        _vision("page_001_chunk_03", [["03.14", "the Purple", "쿠팡", "10,000", "10,000"]]),
+    ]
+
+    merge_output = build_row_outputs(
+        vision_results=vision_results,
+        chunks=chunks,
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    merged_rows = _read_jsonl(merge_output.rows_merged_path)
+    decisions = [row["merge"]["decision"] for row in merged_rows]
+    assert decisions == ["needs_review", "needs_review"], decisions
+    assert merge_output.summary["duplicate_excluded_count"] == 0
+    assert merge_output.summary["duplicate_review_count"] == 2
+
+
+def _read_jsonl(path: Path) -> list[dict[str, object]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
