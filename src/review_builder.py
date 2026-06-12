@@ -209,15 +209,19 @@ def _mapping_position_block(position: dict[str, Any]) -> str:
         return ""
     index = int(position.get("index", 0) or 0)
     total = int(position.get("total", 0) or 0)
-    center = float(position.get("center_percent", 0) or 0)
     left_header = str(position.get("left_header", "") or "없음")
     right_header = str(position.get("right_header", "") or "없음")
-    left_percent = max(0.0, min(100.0, center))
+    cells = []
+    for cell_index in range(1, total + 1):
+        active_class = " active" if cell_index == index else ""
+        label = str(cell_index) if cell_index == index else ""
+        title = f"{cell_index}번째 열"
+        cells.append(f'<span class="position-cell{active_class}" title="{escape(title)}">{escape(label)}</span>')
     return (
         '<div class="position-hint">'
         f'<p><strong>위치</strong> 전체 {total}열 중 {index}번째</p>'
-        '<div class="position-track">'
-        f'<span style="left: {left_percent}%"></span>'
+        f'<div class="position-cells" style="grid-template-columns: repeat({total}, minmax(12px, 1fr));">'
+        f"{''.join(cells)}"
         "</div>"
         f'<dl><div><dt>왼쪽</dt><dd>{escape(left_header)}</dd></div>'
         f'<div><dt>오른쪽</dt><dd>{escape(right_header)}</dd></div></dl>'
@@ -689,21 +693,28 @@ h3 {
   margin: 0 0 7px;
   font-size: 13px;
 }
-.position-track {
-  position: relative;
-  height: 10px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #d8e4df 0 50%, #c6d8d1 50% 100%);
+.position-cells {
+  display: grid;
+  gap: 2px;
   margin: 8px 0;
 }
-.position-track span {
-  position: absolute;
-  top: -4px;
-  width: 8px;
-  height: 18px;
-  border-radius: 999px;
+.position-cell {
+  min-width: 0;
+  height: 24px;
+  border: 1px solid #cfd8d3;
+  border-radius: 4px;
+  background: #edf3f0;
+  color: transparent;
+}
+.position-cell.active {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-color: #11594d;
   background: #176b5d;
-  transform: translateX(-50%);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
 }
 .position-hint dl {
   display: grid;
