@@ -255,12 +255,8 @@ def _call_gemini(
             }
         ],
         "generationConfig": {
-            "responseFormat": {
-                "text": {
-                    "mimeType": "application/json",
-                    "schema": VISION_SCHEMA,
-                }
-            }
+            "response_mime_type": "application/json",
+            "response_schema": VISION_SCHEMA,
         },
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -352,12 +348,18 @@ def _load_prompt(path: Path) -> str:
 
 def _load_api_key(config: dict[str, Any]) -> str:
     env_name = str(config.get("api_key_env", "GEMINI_API_KEY"))
-    api_key = os.environ.get(env_name) or _read_dotenv_value(Path(".env"), env_name)
-    if not api_key:
-        raise RuntimeError(
-            f"Missing Gemini API key. Set {env_name} in the environment or in .env."
-        )
-    return api_key
+    env_names = [env_name]
+    for fallback in ("GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        if fallback not in env_names:
+            env_names.append(fallback)
+
+    for name in env_names:
+        api_key = os.environ.get(name) or _read_dotenv_value(Path(".env"), name)
+        if api_key:
+            return api_key
+
+    names = " or ".join(env_names)
+    raise RuntimeError(f"Missing Gemini API key. Set {names} in the environment or in .env.")
 
 
 def _read_dotenv_value(path: Path, key: str) -> str:

@@ -30,10 +30,12 @@ Use `--force` to rebuild cached page and chunk images.
 
 ## Phase 2 and 3 Vision extraction
 
-Set a Gemini API key in the environment or in local `.env`:
+Set a Gemini API key in the environment or in local `.env`.
+Either name is accepted:
 
 ```text
 GEMINI_API_KEY=your_key_here
+GOOGLE_API_KEY=your_key_here
 ```
 
 Then run without `--dry-run`:
