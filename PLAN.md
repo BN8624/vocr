@@ -25,6 +25,7 @@ Implemented:
 
 - Phase 1: PDF page rendering and chunk building
 - Phase 2/3: Gemini Vision extraction, cache, and raw row review
+- Phase 3B: targeted page summary/total chunks for checksum candidates
 - Phase 4: conservative row collection, exact duplicate representative selection, and raw-cell preservation for excluded duplicates
 - Phase 5: column mapping suggestions and mobile-friendly mapping UI
 - Phase 5B: saved mapping profile reuse from `profiles/*.json` or `--mapping-profile`
@@ -97,6 +98,7 @@ Main output folder:
 output/
 ├── pages/
 ├── chunks/
+├── total_chunks/
 ├── cache/
 ├── merged/
 │   ├── rows_raw.jsonl
@@ -181,6 +183,7 @@ Implemented checks include:
 - exact duplicate representative rows are used for transactions; excluded duplicates remain in raw cells only
 - checksum uses the user-selected source total when `merged/review_state.json` is present
 - column-level validation catches table-wide contamination even when row totals look plausible
+- total-only chunks can capture summary totals without reprocessing every transaction body chunk
 - mapping profiles can match by table signature, not only exact header/group id
 
 Checksum status meanings:
@@ -239,8 +242,8 @@ Keep `.gitignore` enforcing those boundaries.
 
 Good next improvements:
 
-1. Add a targeted total/summary-page extraction pass so totals on later pages can be captured without reprocessing every body chunk.
-2. Add more validation tests with tiny fixture JSONL files.
-3. Split `review_builder.py` into template/static assets once behavior stabilizes.
-4. Add page-level crop/chunk adjustment controls for difficult pages.
-5. Add a small profile management CLI for listing/removing saved profiles.
+1. Add more validation tests with tiny fixture JSONL files.
+2. Split `review_builder.py` into template/static assets once behavior stabilizes.
+3. Add page-level crop/chunk adjustment controls for difficult pages.
+4. Add a small profile management CLI for listing/removing saved profiles.
+5. Add a review-state UI refresh flow so saved checksum choices can be applied without rerunning the CLI manually.

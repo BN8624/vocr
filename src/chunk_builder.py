@@ -110,6 +110,78 @@ def build_chunks(
     return chunks
 
 
+def build_total_chunks(
+    pages: list[PageImage],
+    chunks_dir: Path,
+    config: dict[str, Any],
+    force: bool = False,
+) -> list[ChunkImage]:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise RuntimeError(
+            "Pillow is required to build total review chunks. Run: pip install -r requirements.txt"
+        ) from exc
+
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+    chunks: list[ChunkImage] = []
+
+    header_ratio = float(config.get("header_ratio", 0.12))
+    summary_start_ratio = float(config.get("summary_start_ratio", 0.62))
+    summary_end_ratio = float(config.get("summary_end_ratio", 0.98))
+    attach_header = bool(config.get("attach_header", True))
+
+    for page in pages:
+        with Image.open(page.image_path) as image:
+            image = image.convert("RGB")
+            width, height = image.size
+            header_y_start = 0
+            header_y_end = _clamp(int(height * header_ratio), 1, height)
+            summary_y_start = _clamp(int(height * summary_start_ratio), 0, height - 1)
+            summary_y_end = _clamp(int(height * summary_end_ratio), summary_y_start + 1, height)
+            chunk_id = f"{page.page_id}_totals_01"
+            output_path = chunks_dir / f"{chunk_id}.png"
+            reused = output_path.exists() and not force
+
+            if reused:
+                with Image.open(output_path) as existing:
+                    chunk_width, chunk_height = existing.size
+            else:
+                summary = image.crop((0, summary_y_start, width, summary_y_end))
+                if attach_header:
+                    header = image.crop((0, header_y_start, width, header_y_end))
+                    chunk_image = Image.new("RGB", (width, header.height + summary.height), "white")
+                    chunk_image.paste(header, (0, 0))
+                    chunk_image.paste(summary, (0, header.height))
+                else:
+                    chunk_image = summary
+                chunk_image.save(output_path)
+                chunk_width, chunk_height = chunk_image.size
+
+            chunks.append(
+                ChunkImage(
+                    chunk_id=chunk_id,
+                    page_number=page.page_number,
+                    chunk_index=900,
+                    image_path=output_path,
+                    width=chunk_width,
+                    height=chunk_height,
+                    source_y_start=summary_y_start,
+                    source_y_end=summary_y_end,
+                    header_y_start=header_y_start,
+                    header_y_end=header_y_end if attach_header else 0,
+                    reused=reused,
+                )
+            )
+
+    manifest_path = chunks_dir / "total_chunks_manifest.json"
+    manifest_path.write_text(
+        json.dumps([_chunk_to_json(chunk) for chunk in chunks], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return chunks
+
+
 def _clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
 

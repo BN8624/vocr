@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from src.chunk_builder import build_chunks
+from src.chunk_builder import build_chunks, build_total_chunks
 from src.excel_exporter import export_excel, load_excel_export
 from src.normalizer import build_transactions, load_normalization_output
 from src.page_renderer import render_pdf_pages
@@ -27,6 +27,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "overlap_ratio": 0.25,
         "attach_header": True,
     },
+    "total_extraction": {
+        "enabled": True,
+        "header_ratio": 0.12,
+        "summary_start_ratio": 0.62,
+        "summary_end_ratio": 0.98,
+        "attach_header": True,
+        "prompt_path": "prompts/vision_extract_totals.md",
+    },
     "review": {
         "html_title": "Card Statement Review",
         "show_chunk_images": True,
@@ -45,6 +53,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "output": {
         "pages_dir": "pages",
         "chunks_dir": "chunks",
+        "total_chunks_dir": "total_chunks",
         "cache_dir": "cache",
         "merged_dir": "merged",
         "profiles_dir": "profiles",
@@ -93,6 +102,7 @@ def ensure_output_dirs(output_dir: Path, config: dict[str, Any]) -> dict[str, Pa
         "root": output_dir,
         "pages": output_dir / output_cfg["pages_dir"],
         "chunks": output_dir / output_cfg["chunks_dir"],
+        "total_chunks": output_dir / output_cfg.get("total_chunks_dir", "total_chunks"),
         "cache": output_dir / output_cfg["cache_dir"],
         "merged": output_dir / output_cfg["merged_dir"],
         "profiles": Path(output_cfg.get("profiles_dir", "profiles")),
@@ -191,6 +201,11 @@ def parse_args() -> argparse.Namespace:
         help="Process only the first N chunks with Vision LLM. Useful for API smoke tests.",
     )
     parser.add_argument(
+        "--skip-total-pass",
+        action="store_true",
+        help="Skip the targeted summary/total extraction pass.",
+    )
+    parser.add_argument(
         "--mapping-profile",
         action="append",
         default=[],
@@ -233,12 +248,23 @@ def main() -> int:
             config=config["chunking"],
             force=bool(args.force),
         )
+        total_chunks = []
+        if bool(config.get("total_extraction", {}).get("enabled", True)) and not args.skip_total_pass:
+            logging.info("Building targeted total review chunks...")
+            total_chunks = build_total_chunks(
+                pages=pages,
+                chunks_dir=output_dirs["total_chunks"],
+                config=config.get("total_extraction", {}),
+                force=bool(args.force),
+            )
+        review_chunks = chunks + total_chunks
 
         vision_results = []
         llm_calls = 0
         if args.dry_run:
             logging.info("Dry-run mode: skipping Vision LLM calls.")
             vision_results = load_cached_vision_results(chunks, output_dirs["cache"])
+            vision_results.extend(load_cached_vision_results(total_chunks, output_dirs["cache"]))
             phase = "phase_1_dry_run"
         else:
             logging.info("Extracting rows with Gemini Vision...")
@@ -253,6 +279,20 @@ def main() -> int:
                 force=bool(args.force_vision),
                 limit=args.limit_chunks,
             )
+            if total_chunks:
+                logging.info("Extracting summary totals with Gemini Vision...")
+                total_prompt_path = Path(str(config.get("total_extraction", {}).get("prompt_path", "prompts/vision_extract_totals.md")))
+                if not total_prompt_path.is_absolute():
+                    total_prompt_path = config_path.parent / total_prompt_path
+                vision_results.extend(
+                    extract_chunks_with_vision(
+                        chunks=total_chunks,
+                        cache_dir=output_dirs["cache"],
+                        prompt_path=total_prompt_path,
+                        config=config["vision"],
+                        force=bool(args.force_vision),
+                    )
+                )
             llm_calls = sum(1 for result in vision_results if not result.reused)
             phase = "phase_2_3_vision_review"
 
@@ -261,7 +301,7 @@ def main() -> int:
             logging.info("Collecting raw rows and duplicate candidates...")
             merge_output = build_row_outputs(
                 vision_results=vision_results,
-                chunks=chunks,
+                chunks=review_chunks,
                 input_pdf=input_pdf,
                 output_dir=output_dirs["root"],
                 merged_dir=output_dirs["merged"],
@@ -308,7 +348,7 @@ def main() -> int:
                 normalization_output=normalization_output,
                 vision_results=vision_results,
                 merged_dir=output_dirs["merged"],
-                expected_chunk_count=len(chunks),
+                expected_chunk_count=len(review_chunks),
                 review_state=review_state,
             )
             phase = "phase_7_validated_review"
@@ -335,7 +375,7 @@ def main() -> int:
         review_path = build_review_html(
             output_dir=output_dirs["root"],
             pages=pages,
-            chunks=chunks,
+            chunks=review_chunks,
             config=config["review"],
             input_pdf=input_pdf,
             vision_results=vision_results,
@@ -351,7 +391,7 @@ def main() -> int:
             config=config,
             input_pdf=input_pdf,
             page_count=len(pages),
-            chunk_count=len(chunks),
+            chunk_count=len(review_chunks),
             review_path=review_path,
             phase=phase,
             llm_calls=llm_calls,

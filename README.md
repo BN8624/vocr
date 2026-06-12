@@ -10,6 +10,7 @@ Image-based Korean credit card statement PDFs를 Vision LLM으로 읽고, 사람
 
 - PDF 페이지를 고해상도 PNG로 렌더링
 - 헤더가 붙은 겹침 청크 이미지 생성
+- 페이지 하단/요약 영역의 합계 전용 청크 이미지 생성
 - Gemini Vision API 호출 및 응답 캐시
 - `review.html` 생성
 - 원본 row/cell 보존
@@ -119,6 +120,7 @@ python main.py --input samples/card.pdf --output output --dry-run --mapping-prof
 output/
   pages/
   chunks/
+  total_chunks/
   cache/
   merged/
     rows_raw.jsonl
@@ -158,6 +160,8 @@ Excel 시트:
 `review.html`의 검증 결과에서 원본 합계 후보를 선택하고 `검산 기준 저장`을 누르면 현재 output의 `merged/review_state.json`에 저장됩니다. 저장 후 같은 명령을 다시 실행하면 선택된 합계만 기준으로 검산합니다.
 
 열 품질 검사는 행 하나가 아니라 표 전체의 패턴을 봅니다. 날짜 성공률, 금액 성공률, 가맹점 숫자 비율, 가맹점 빈 값 비율, 카드명 고유값/긴 텍스트 비율, 행별 셀 개수 분포가 `validation_summary.json`의 `column_quality`에 기록되고 `review.html`과 Excel `확인필요` 시트에 표시됩니다.
+
+합계 후보는 일반 거래 청크의 `totals`와 `total_chunks/`의 합계 전용 Vision 결과를 함께 사용합니다. 이렇게 해서 거래 표 다음 페이지나 페이지 하단에만 있는 결제금액/소계도 검산 후보로 잡을 수 있습니다.
 
 ## 견본 테스트
 

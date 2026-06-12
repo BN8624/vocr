@@ -10,6 +10,14 @@ chunking:
   overlap_ratio: 0.25
   attach_header: true
 
+total_extraction:
+  enabled: true
+  header_ratio: 0.12
+  summary_start_ratio: 0.62
+  summary_end_ratio: 0.98
+  attach_header: true
+  prompt_path: prompts/vision_extract_totals.md
+
 vision:
   provider: gemini
   model: gemini-3.5-flash
@@ -28,6 +36,7 @@ review:
 output:
   pages_dir: pages
   chunks_dir: chunks
+  total_chunks_dir: total_chunks
   cache_dir: cache
   merged_dir: merged
   profiles_dir: profiles
