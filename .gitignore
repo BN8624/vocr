@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# vocr generated artifacts
+output/*
+!output/.gitkeep
+samples/*
+!samples/.gitkeep
+견본/*.pdf

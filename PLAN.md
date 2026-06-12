@@ -2,6 +2,18 @@
 
 # AI Vision-Based Card Statement Converter Plan
 
+## Current Implementation Status
+
+- Phase 1 dry-run pipeline is implemented.
+- It renders PDF pages to `output/pages/`.
+- It creates overlapping header+body chunks in `output/chunks/`.
+- It builds `output/review.html` for visual inspection.
+- It does not call any Vision LLM API.
+- Sample PDFs in `견본/` use the filename suffix as expected page count, and
+  `tests/smoke_phase1_samples.py` verifies that Phase 1 renders each one.
+
+---
+
 ## 0. Background
 
 We converted three image-based Korean card statement PDFs into Excel manually by visually inspecting page images and table regions. The work revealed several important lessons:
@@ -607,4 +619,3 @@ V1 is complete when:
 6. User can confirm column mappings.
 7. Validation can flag amount and text-column issues.
 8. Excel can be exported with `전체명세`, `검산`, `원본셀`, `추가필드`, `확인필요` sheets.
-

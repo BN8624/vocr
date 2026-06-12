@@ -1,0 +1,23 @@
+render:
+  dpi: 300
+  image_format: png
+
+chunking:
+  header_ratio: 0.12
+  body_start_ratio: 0.12
+  body_end_ratio: 0.95
+  chunk_height_ratio: 0.35
+  overlap_ratio: 0.25
+  attach_header: true
+
+review:
+  html_title: Card Statement Review
+  show_chunk_images: true
+  show_raw_json_paths: true
+
+output:
+  pages_dir: pages
+  chunks_dir: chunks
+  cache_dir: cache
+  merged_dir: merged
+  summary_filename: summary.json
