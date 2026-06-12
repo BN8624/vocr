@@ -134,7 +134,7 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
         if review_columns:
             parts.append('<div class="mapping-columns mapping-review-columns">')
             for column in review_columns:
-                parts.append(_mapping_column_card(column, mapping_output.option_labels, is_review=True))
+                parts.append(_mapping_column_card(review_path, column, mapping_output.option_labels, is_review=True))
             parts.append("</div>")
         else:
             parts.append('<p class="mapping-ok">확인할 애매한 열이 없습니다. 자동 추천값을 그대로 사용할 수 있습니다.</p>')
@@ -147,7 +147,7 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
             ]
         )
         for column in auto_columns:
-            parts.append(_mapping_column_card(column, mapping_output.option_labels, is_review=False))
+            parts.append(_mapping_column_card(review_path, column, mapping_output.option_labels, is_review=False))
         parts.extend(["</div>", "</details>", "</article>"])
 
     parts.extend(
@@ -163,6 +163,7 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
 
 
 def _mapping_column_card(
+    review_path: Path,
     column: dict[str, Any],
     option_labels: dict[str, str],
     is_review: bool,
@@ -172,13 +173,18 @@ def _mapping_column_card(
     samples = [str(value) for value in column.get("sample_values", [])]
     sample_html = "".join(f"<li>{escape(value)}</li>" for value in samples) or "<li>샘플 없음</li>"
     review_reason = str(column.get("review_reason", ""))
+    position = column.get("position", {}) if isinstance(column.get("position"), dict) else {}
     card_class = "mapping-column needs-review" if is_review else "mapping-column auto"
     badge = '<span class="review-badge">확인필요</span>' if is_review else '<span class="auto-badge">자동추천</span>'
     review_text = f'<p class="warning">{escape(review_reason)}</p>' if review_reason else ""
+    position_block = _mapping_position_block(position)
+    source_links = _mapping_source_links(review_path, column)
     return "\n".join(
         [
             f'<article class="{card_class}">',
             f'<h4>{badge} {escape(str(column.get("column_id", "")))} · {escape(str(column.get("header", "")))}</h4>',
+            position_block,
+            source_links,
             '<label>',
             "<span>필드 선택</span>",
             (
@@ -196,6 +202,38 @@ def _mapping_column_card(
             "</article>",
         ]
     )
+
+
+def _mapping_position_block(position: dict[str, Any]) -> str:
+    if not position:
+        return ""
+    index = int(position.get("index", 0) or 0)
+    total = int(position.get("total", 0) or 0)
+    center = float(position.get("center_percent", 0) or 0)
+    left_header = str(position.get("left_header", "") or "없음")
+    right_header = str(position.get("right_header", "") or "없음")
+    left_percent = max(0.0, min(100.0, center))
+    return (
+        '<div class="position-hint">'
+        f'<p><strong>위치</strong> 전체 {total}열 중 {index}번째</p>'
+        '<div class="position-track">'
+        f'<span style="left: {left_percent}%"></span>'
+        "</div>"
+        f'<dl><div><dt>왼쪽</dt><dd>{escape(left_header)}</dd></div>'
+        f'<div><dt>오른쪽</dt><dd>{escape(right_header)}</dd></div></dl>'
+        "</div>"
+    )
+
+
+def _mapping_source_links(review_path: Path, column: dict[str, Any]) -> str:
+    refs = [str(ref) for ref in column.get("source_image_refs", []) if str(ref).strip()]
+    if not refs:
+        return ""
+    links = []
+    for index, ref in enumerate(refs[:2], start=1):
+        target = review_path.parent / ref
+        links.append(_file_link(review_path, target, f"원본 청크 {index} 보기"))
+    return f'<div class="mapping-source-links">{"".join(links)}</div>'
 
 
 def _mapping_options_html(option_labels: dict[str, str], selected: str) -> str:
@@ -639,6 +677,57 @@ h3 {
   line-height: 1.35;
   letter-spacing: 0;
   overflow-wrap: anywhere;
+}
+.position-hint {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px;
+  margin: 8px 0 10px;
+}
+.position-hint p {
+  margin: 0 0 7px;
+  font-size: 13px;
+}
+.position-track {
+  position: relative;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #d8e4df 0 50%, #c6d8d1 50% 100%);
+  margin: 8px 0;
+}
+.position-track span {
+  position: absolute;
+  top: -4px;
+  width: 8px;
+  height: 18px;
+  border-radius: 999px;
+  background: #176b5d;
+  transform: translateX(-50%);
+}
+.position-hint dl {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin: 0;
+}
+.position-hint dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.position-hint dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.mapping-source-links {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+.mapping-source-links .file-link {
+  justify-content: center;
 }
 .mapping-ok {
   margin: 10px 0;

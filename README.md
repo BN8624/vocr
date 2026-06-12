@@ -75,9 +75,11 @@ When merged rows exist, the pipeline writes:
 
 `review.html` shows a mobile-friendly column mapping panel. Confident automatic
 matches are collapsed, and only ambiguous or conflicting columns are shown first.
-The user can adjust those columns with select menus and download
-`mapping-profile.json` from the browser. This keeps the mapping review usable on
-iPhone before automatic local profile saving is added.
+The user can adjust those columns with select menus. Each mapping card includes
+the approximate column order, neighboring headers, and source chunk links because
+amount-only columns often require visual position context. The browser can
+download `mapping-profile.json`. This keeps the mapping review usable on iPhone
+before automatic local profile saving is added.
 
 ## Sample smoke test
 

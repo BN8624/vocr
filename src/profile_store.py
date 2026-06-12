@@ -113,6 +113,8 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
                 "suggested_field": suggestion["field"],
                 "confidence": suggestion["confidence"],
                 "reason": suggestion["reason"],
+                "position": _column_position(index, labels),
+                "source_image_refs": _source_image_refs(rows),
                 "requires_review": False,
                 "review_reason": "",
             }
@@ -220,6 +222,38 @@ def _sample_column_values(rows: list[dict[str, Any]], column_index: int) -> list
         if len(samples) >= 8:
             break
     return samples
+
+
+def _column_position(column_index: int, labels: list[str]) -> dict[str, Any]:
+    total = max(1, len(labels))
+    left = labels[column_index - 1] if column_index > 0 else ""
+    right = labels[column_index + 1] if column_index + 1 < len(labels) else ""
+    start_percent = round((column_index / total) * 100, 1)
+    end_percent = round(((column_index + 1) / total) * 100, 1)
+    center_percent = round(((column_index + 0.5) / total) * 100, 1)
+    return {
+        "index": column_index + 1,
+        "total": total,
+        "left_header": left,
+        "right_header": right,
+        "start_percent": start_percent,
+        "end_percent": end_percent,
+        "center_percent": center_percent,
+    }
+
+
+def _source_image_refs(rows: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        image_ref = str(row.get("raw", {}).get("image_ref", "")).strip()
+        if not image_ref or image_ref in seen:
+            continue
+        refs.append(image_ref)
+        seen.add(image_ref)
+        if len(refs) >= 3:
+            break
+    return refs
 
 
 def _header_key(header: list[str]) -> str:
