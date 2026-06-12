@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.chunk_builder import build_chunks
+from src.normalizer import build_transactions, load_normalization_output
 from src.page_renderer import render_pdf_pages
 from src.profile_store import build_mapping_suggestions, load_mapping_suggestions
 from src.review_builder import build_review_html
@@ -112,6 +113,9 @@ def write_summary(
     raw_row_count: int,
     duplicate_group_count: int,
     mapping_group_count: int,
+    transaction_count: int,
+    normalization_review_count: int,
+    normalized_amount_total: int,
 ) -> Path:
     summary_path = output_dir / config["output"]["summary_filename"]
     summary = {
@@ -126,6 +130,9 @@ def write_summary(
         "raw_row_count": raw_row_count,
         "duplicate_group_count": duplicate_group_count,
         "mapping_group_count": mapping_group_count,
+        "transaction_count": transaction_count,
+        "normalization_review_count": normalization_review_count,
+        "normalized_amount_total": normalized_amount_total,
     }
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -252,6 +259,18 @@ def main() -> int:
                 profiles_dir=output_dirs["profiles"],
             )
 
+        normalization_output = None
+        if merge_output and mapping_output:
+            logging.info("Normalizing mapped rows into transactions...")
+            normalization_output = build_transactions(
+                merge_output=merge_output,
+                mapping_output=mapping_output,
+                merged_dir=output_dirs["merged"],
+            )
+            phase = "phase_6_normalized_review"
+        else:
+            normalization_output = load_normalization_output(output_dirs["merged"])
+
         logging.info("Building review HTML...")
         review_path = build_review_html(
             output_dir=output_dirs["root"],
@@ -262,6 +281,7 @@ def main() -> int:
             vision_results=vision_results,
             merge_output=merge_output,
             mapping_output=mapping_output,
+            normalization_output=normalization_output,
         )
 
         summary_path = write_summary(
@@ -278,6 +298,9 @@ def main() -> int:
             raw_row_count=merge_output.raw_row_count if merge_output else 0,
             duplicate_group_count=merge_output.duplicate_group_count if merge_output else 0,
             mapping_group_count=len(mapping_output.table_groups) if mapping_output else 0,
+            transaction_count=normalization_output.transaction_count if normalization_output else 0,
+            normalization_review_count=normalization_output.review_count if normalization_output else 0,
+            normalized_amount_total=normalization_output.amount_total if normalization_output else 0,
         )
 
     except Exception as exc:

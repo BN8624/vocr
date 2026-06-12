@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from src.chunk_builder import ChunkImage
+from src.normalizer import NormalizationOutput
 from src.page_renderer import PageImage
 from src.profile_store import MAPPING_OPTIONS, MappingOutput
 from src.row_merger import RowMergeOutput
@@ -21,6 +22,7 @@ def build_review_html(
     vision_results: list[VisionResult] | None = None,
     merge_output: RowMergeOutput | None = None,
     mapping_output: MappingOutput | None = None,
+    normalization_output: NormalizationOutput | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     review_path = output_dir / "review.html"
@@ -57,6 +59,8 @@ def build_review_html(
         html.append(_merge_block(review_path, merge_output))
     if mapping_output:
         html.append(_mapping_block(review_path, mapping_output))
+    if normalization_output:
+        html.append(_normalization_block(review_path, normalization_output))
 
     for page in pages:
         page_src = _relative_src(review_path, page.image_path)
@@ -159,6 +163,96 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
             "</section>",
         ]
     )
+    return "\n".join(parts)
+
+
+def _normalization_block(review_path: Path, normalization_output: NormalizationOutput) -> str:
+    summary = normalization_output.summary
+    review_count = normalization_output.review_count
+    review_samples = [
+        sample for sample in summary.get("review_samples", []) if isinstance(sample, dict)
+    ]
+    reason_counts = [
+        item for item in summary.get("review_reason_counts", []) if isinstance(item, dict)
+    ]
+    parts = [
+        '<section class="normalization-panel">',
+        "<h2>정규화 결과</h2>",
+        (
+            '<p class="mapping-ok">거래 데이터로 변환했습니다. 확인필요 항목이 없으면 다음 단계에서 검증과 엑셀 출력을 진행할 수 있습니다.</p>'
+            if review_count == 0
+            else '<p class="merge-warning">정규화는 완료했지만 확인필요 거래가 있습니다. 원본셀은 보존했고, 애매한 값은 추측하지 않았습니다.</p>'
+        ),
+        '<div class="summary normalization-stats">',
+        f"<div><strong>거래</strong><span>{normalization_output.transaction_count}</span></div>",
+        f"<div><strong>확인필요</strong><span>{review_count}</span></div>",
+        f"<div><strong>이용금액 합계</strong><span>{normalization_output.amount_total:,}</span></div>",
+        f"<div><strong>결제/청구 합계</strong><span>{normalization_output.billing_amount_total:,}</span></div>",
+        "</div>",
+        '<div class="merge-links">',
+        _file_link(review_path, normalization_output.transactions_path, "transactions.jsonl"),
+        _file_link(review_path, normalization_output.summary_path, "normalization_summary.json"),
+        "</div>",
+    ]
+
+    if reason_counts:
+        parts.extend(
+            [
+                '<details class="normalization-details">',
+                f"<summary>확인필요 이유 보기 ({len(reason_counts)}종류)</summary>",
+                '<div class="reason-list">',
+            ]
+        )
+        for item in reason_counts:
+            parts.append(
+                '<div class="reason-item">'
+                f"<strong>{escape(str(item.get('count', 0)))}</strong>"
+                f"<span>{escape(str(item.get('reason', '')))}</span>"
+                "</div>"
+            )
+        parts.extend(["</div>", "</details>"])
+
+    if review_samples:
+        parts.extend(
+            [
+                '<details class="normalization-details">',
+                f"<summary>확인필요 거래 샘플 보기 ({len(review_samples)}개)</summary>",
+                '<div class="normalization-samples">',
+            ]
+        )
+        for sample in review_samples:
+            source = sample.get("source", {}) if isinstance(sample.get("source"), dict) else {}
+            transaction = (
+                sample.get("transaction", {}) if isinstance(sample.get("transaction"), dict) else {}
+            )
+            cells = [str(value) for value in sample.get("cells", [])]
+            image_ref = str(sample.get("image_ref", "")).strip()
+            image_link = ""
+            if image_ref:
+                image_link = _file_link(review_path, review_path.parent / image_ref, "원본 청크 보기")
+            parts.extend(
+                [
+                    '<article class="normalization-sample">',
+                    (
+                        f"<h3>p{escape(str(source.get('page', '')))} "
+                        f"{escape(str(source.get('chunk_id', '')))} "
+                        f"#{escape(str(source.get('local_row_index', '')))}</h3>"
+                    ),
+                    '<dl class="sample-transaction">',
+                    f"<div><dt>날짜</dt><dd>{escape(str(transaction.get('date', '')))}</dd></div>",
+                    f"<div><dt>카드</dt><dd>{escape(str(transaction.get('card_label', '')))}</dd></div>",
+                    f"<div><dt>가맹점</dt><dd>{escape(str(transaction.get('merchant', '')))}</dd></div>",
+                    f"<div><dt>금액</dt><dd>{escape(str(transaction.get('amount', '')))}</dd></div>",
+                    "</dl>",
+                    f'<p class="warning">{escape(str(sample.get("review_reason", "")))}</p>',
+                    f'<p class="note">원본셀: {escape(" | ".join(cells))}</p>',
+                    image_link,
+                    "</article>",
+                ]
+            )
+        parts.extend(["</div>", "</details>"])
+
+    parts.append("</section>")
     return "\n".join(parts)
 
 
@@ -650,6 +744,90 @@ h3 {
   margin-top: 22px;
   padding-top: 18px;
   border-top: 2px solid var(--line);
+}
+.normalization-panel {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 2px solid var(--line);
+}
+.normalization-stats {
+  margin-bottom: 10px;
+}
+.normalization-details {
+  margin-top: 10px;
+}
+.normalization-details summary {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfbf9;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 700;
+}
+.normalization-details[open] summary {
+  margin-bottom: 10px;
+}
+.reason-list,
+.normalization-samples {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.reason-item,
+.normalization-sample {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 10px;
+}
+.reason-item {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.reason-item strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  border-radius: 6px;
+  background: #eef4f1;
+  color: var(--accent);
+}
+.reason-item span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.normalization-sample h3 {
+  margin-bottom: 8px;
+}
+.sample-transaction {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+  margin: 0 0 8px;
+}
+.sample-transaction div {
+  min-width: 0;
+  background: #fff;
+  padding: 7px;
+}
+.sample-transaction dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.sample-transaction dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
 }
 .mapping-panel > .note {
   margin-top: 0;

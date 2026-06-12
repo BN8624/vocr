@@ -182,16 +182,18 @@ def _suggest_field(header: str, values: list[str]) -> dict[str, str]:
         return _suggest("card_label", "high", "헤더가 카드명/카드번호 열처럼 보입니다.")
     if any(token in text for token in ("가맹점", "merchant", "사용처")):
         return _suggest("merchant", "high", "헤더가 가맹점 열처럼 보입니다.")
+    if any(token in text for token in ("수수료", "이자", "fee")):
+        return _suggest("fee", "medium", "헤더가 수수료 열처럼 보입니다.")
+    if any(token in text for token in ("할인금액", "혜택금액", "할인", "혜택액")):
+        return _suggest("discount", "medium", "헤더가 할인/혜택 금액 열처럼 보입니다.")
+    if "혜택" in text:
+        return _suggest("memo", "medium", "헤더가 혜택 설명 열처럼 보입니다.")
     if any(token in text for token in ("이용금액", "사용금액", "승인금액", "amount")):
         return _suggest("amount", "high", "헤더가 이용금액 열처럼 보입니다.")
     if any(token in text for token in ("결제원금", "청구금액", "입금하실금액", "billing")):
         return _suggest("billing_amount", "high", "헤더가 결제/청구 금액 열처럼 보입니다.")
     if any(token in text for token in ("일시불", "할부", "이용구분", "거래구분")):
         return _suggest("transaction_type", "medium", "헤더가 거래 유형 열처럼 보입니다.")
-    if any(token in text for token in ("할인", "할인금액")):
-        return _suggest("discount", "medium", "헤더가 할인 금액 열처럼 보입니다.")
-    if any(token in text for token in ("수수료", "fee")):
-        return _suggest("fee", "medium", "헤더가 수수료 열처럼 보입니다.")
 
     if nonempty:
         date_rate = sum(1 for value in nonempty if _is_date_like(value)) / len(nonempty)
