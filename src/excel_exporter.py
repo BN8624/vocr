@@ -52,7 +52,7 @@ def export_excel(
     _write_checksum(ws_checksum, summary)
     _write_raw_cells(ws_raw, raw_rows)
     _write_extra_fields(ws_extra, rows)
-    review_count = _write_review_rows(ws_review, rows)
+    review_count = _write_review_rows(ws_review, rows, summary)
 
     for sheet in workbook.worksheets:
         _style_sheet(sheet, get_column_letter, Table, TableStyleInfo, PatternFill, Font, Alignment)
@@ -220,7 +220,27 @@ def _write_extra_fields(sheet: Any, rows: list[dict[str, Any]]) -> None:
                 )
 
 
-def _write_review_rows(sheet: Any, rows: list[dict[str, Any]]) -> int:
+def _write_review_rows(sheet: Any, rows: list[dict[str, Any]], summary: dict[str, Any]) -> int:
+    column_quality = _dict(summary.get("column_quality"))
+    column_issues = [
+        issue for issue in column_quality.get("issues", []) if isinstance(issue, dict)
+    ]
+    if column_issues:
+        sheet.append(["type", "code", "field", "message", "value", "threshold", "header"])
+        for issue in column_issues:
+            sheet.append(
+                [
+                    "column_quality",
+                    issue.get("code", ""),
+                    issue.get("field", ""),
+                    issue.get("message", ""),
+                    issue.get("value", ""),
+                    issue.get("threshold", ""),
+                    " | ".join(str(value) for value in issue.get("header", [])),
+                ]
+            )
+        sheet.append([])
+
     sheet.append(
         [
             "source_file",
@@ -236,7 +256,7 @@ def _write_review_rows(sheet: Any, rows: list[dict[str, Any]]) -> int:
             "image_ref",
         ]
     )
-    review_count = 0
+    review_count = len(column_issues)
     for row in rows:
         quality = _dict(row.get("quality"))
         validation = _dict(row.get("validation"))

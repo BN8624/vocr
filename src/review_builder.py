@@ -274,6 +274,7 @@ def _normalization_block(review_path: Path, normalization_output: NormalizationO
 def _validation_block(review_path: Path, validation_output: ValidationOutput) -> str:
     summary = validation_output.summary
     checksum = summary.get("checksum", {}) if isinstance(summary.get("checksum"), dict) else {}
+    column_quality = summary.get("column_quality", {}) if isinstance(summary.get("column_quality"), dict) else {}
     issue_counts = [
         item for item in summary.get("issue_counts", []) if isinstance(item, dict)
     ]
@@ -284,6 +285,8 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
     checksum_message = str(checksum.get("message", ""))
     checksum_class = "mapping-ok" if checksum_status == "user_confirmed_total_matched" else "merge-warning"
     row_ok = validation_output.issue_row_count == 0
+    column_issue_count = int(column_quality.get("issue_count", 0) or 0)
+    column_ok = column_issue_count == 0
     parts = [
         '<section class="validation-panel">',
         "<h2>검증 결과</h2>",
@@ -293,10 +296,16 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
             if row_ok
             else '<p class="merge-warning">행 단위 확인필요 항목이 있습니다. 원본셀과 청크 링크로 바로 확인할 수 있습니다.</p>'
         ),
+        (
+            '<p class="mapping-ok">열 단위 오염 징후는 없습니다.</p>'
+            if column_ok
+            else '<p class="merge-warning">열 단위 확인필요 항목이 있습니다. 카드명/가맹점/금액 열이 섞였는지 확인하세요.</p>'
+        ),
         '<div class="summary validation-stats">',
         f"<div><strong>거래</strong><span>{validation_output.transaction_count}</span></div>",
         f"<div><strong>문제 행</strong><span>{validation_output.issue_row_count}</span></div>",
         f"<div><strong>문제 수</strong><span>{validation_output.row_issue_count}</span></div>",
+        f"<div><strong>열 문제</strong><span>{column_issue_count}</span></div>",
         f"<div><strong>검산</strong><span>{escape(_checksum_label(checksum_status))}</span></div>",
         "</div>",
         '<div class="merge-links">',
@@ -307,6 +316,7 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
     ]
 
     parts.append(_checksum_details(review_path, validation_output.summary_path.parent / "review_state.json", checksum))
+    parts.append(_column_quality_details(column_quality))
 
     if issue_counts:
         parts.extend(
@@ -369,6 +379,64 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
 
     parts.append("</section>")
     return "\n".join(parts)
+
+
+def _column_quality_details(column_quality: dict[str, Any]) -> str:
+    issues = [issue for issue in column_quality.get("issues", []) if isinstance(issue, dict)]
+    groups = [group for group in column_quality.get("groups", []) if isinstance(group, dict)]
+    if not issues and not groups:
+        return ""
+
+    issue_cards = []
+    for issue in issues:
+        header = " | ".join(str(value) for value in issue.get("header", []))
+        issue_cards.append(
+            '<article class="column-issue">'
+            f"<h3>{escape(str(issue.get('label') or issue.get('code') or '열 문제'))}</h3>"
+            f"<p>{escape(str(issue.get('message', '')))}</p>"
+            f"<dl><div><dt>필드</dt><dd>{escape(str(issue.get('field', '')))}</dd></div>"
+            f"<div><dt>값</dt><dd>{escape(str(issue.get('value', '')))}</dd></div>"
+            f"<div><dt>기준</dt><dd>{escape(str(issue.get('threshold', '')))}</dd></div>"
+            f"<div><dt>헤더</dt><dd>{escape(header)}</dd></div></dl>"
+            "</article>"
+        )
+
+    metric_cards = []
+    for group in groups[:6]:
+        metrics = group.get("metrics", {}) if isinstance(group.get("metrics"), dict) else {}
+        distribution = metrics.get("row_cell_count_distribution", {})
+        counts = distribution.get("counts", {}) if isinstance(distribution, dict) else {}
+        metric_cards.append(
+            '<article class="column-metrics">'
+            f"<h3>{escape(str(group.get('group_id', 'table')))}</h3>"
+            "<dl>"
+            f"<div><dt>행</dt><dd>{escape(str(group.get('row_count', '')))}</dd></div>"
+            f"<div><dt>날짜 성공률</dt><dd>{escape(_percent(metrics.get('date_parse_success_rate')))}</dd></div>"
+            f"<div><dt>금액 성공률</dt><dd>{escape(_percent(metrics.get('amount_parse_success_rate')))}</dd></div>"
+            f"<div><dt>가맹점 숫자</dt><dd>{escape(_percent(metrics.get('merchant_numeric_like_rate')))}</dd></div>"
+            f"<div><dt>가맹점 빈 값</dt><dd>{escape(_percent(metrics.get('merchant_empty_rate')))}</dd></div>"
+            f"<div><dt>카드명 고유값</dt><dd>{escape(str(metrics.get('card_label_unique_count', '')))}</dd></div>"
+            f"<div><dt>셀 개수</dt><dd>{escape(str(counts))}</dd></div>"
+            "</dl>"
+            "</article>"
+        )
+
+    return (
+        '<details class="validation-details">'
+        f"<summary>열 품질 보기 (문제 {len(issues)}개)</summary>"
+        '<div class="column-quality-list">'
+        f"{''.join(issue_cards) if issue_cards else '<p class=\"mapping-ok\">열 품질 문제는 없습니다.</p>'}"
+        f"{''.join(metric_cards)}"
+        "</div>"
+        "</details>"
+    )
+
+
+def _percent(value: Any) -> str:
+    try:
+        return f"{float(value) * 100:.1f}%"
+    except (TypeError, ValueError):
+        return ""
 
 
 def _excel_block(review_path: Path, excel_output: ExcelExportOutput) -> str:
@@ -1093,18 +1161,57 @@ h3 {
 }
 .reason-list,
 .normalization-samples,
-.checksum-candidates {
+.checksum-candidates,
+.column-quality-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 10px;
 }
 .reason-item,
 .normalization-sample,
-.checksum-candidate {
+.checksum-candidate,
+.column-issue,
+.column-metrics {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
   padding: 10px;
+}
+.column-issue {
+  border-color: #e2a35d;
+  background: #fff5e8;
+}
+.column-issue h3,
+.column-metrics h3 {
+  margin-bottom: 8px;
+}
+.column-issue dl,
+.column-metrics dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--line);
+  margin: 8px 0 0;
+}
+.column-issue dl div,
+.column-metrics dl div {
+  min-width: 0;
+  background: #fff;
+  padding: 7px;
+}
+.column-issue dt,
+.column-metrics dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+.column-issue dd,
+.column-metrics dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
 }
 .reason-item {
   display: grid;

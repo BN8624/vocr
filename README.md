@@ -19,6 +19,7 @@ Image-based Korean credit card statement PDFs를 Vision LLM으로 읽고, 사람
 - 거래 정규화
 - 검증 결과 생성
 - 검산 기준 원본 합계 선택 및 `merged/review_state.json` 저장
+- 날짜/금액/가맹점/카드명/셀 개수 분포의 열 단위 품질 검사
 - `result.xlsx` export
 
 ## 중복 행 처리
@@ -152,6 +153,8 @@ Excel 시트:
 - `합계 확인 미완료`: 일부 청크만 Vision 결과가 있어 다음 페이지/청크의 합계를 아직 못 봤을 수 있음
 
 `review.html`의 검증 결과에서 원본 합계 후보를 선택하고 `검산 기준 저장`을 누르면 현재 output의 `merged/review_state.json`에 저장됩니다. 저장 후 같은 명령을 다시 실행하면 선택된 합계만 기준으로 검산합니다.
+
+열 품질 검사는 행 하나가 아니라 표 전체의 패턴을 봅니다. 날짜 성공률, 금액 성공률, 가맹점 숫자 비율, 가맹점 빈 값 비율, 카드명 고유값/긴 텍스트 비율, 행별 셀 개수 분포가 `validation_summary.json`의 `column_quality`에 기록되고 `review.html`과 Excel `확인필요` 시트에 표시됩니다.
 
 ## 견본 테스트
 

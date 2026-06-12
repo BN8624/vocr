@@ -39,6 +39,7 @@ def build_validation(
     rows = _read_jsonl(normalization_output.transactions_path)
     source_totals = _source_total_candidates(vision_results or [])
     row_issues = _validate_rows(rows)
+    column_quality = _column_quality(rows)
     checksum = _checksum_summary(
         amount_total=normalization_output.amount_total,
         billing_amount_total=normalization_output.billing_amount_total,
@@ -66,7 +67,9 @@ def build_validation(
                 "schema_version": "1.0",
                 "row_issue_count": sum(len(issues) for issues in row_issues.values()),
                 "issue_row_count": len(issue_records),
+                "column_issue_count": int(column_quality.get("issue_count", 0)),
                 "issues": issue_records,
+                "column_quality": column_quality,
             },
             ensure_ascii=False,
             indent=2,
@@ -84,6 +87,7 @@ def build_validation(
             {"code": code, "label": _issue_label(code), "count": count}
             for code, count in reason_counts.most_common()
         ],
+        "column_quality": column_quality,
         "checksum": checksum,
         "outputs": {
             "validated_transactions": str(validated_path),
@@ -192,6 +196,217 @@ def _stable_cell_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
         if frequency >= 2:
             stable[header_key] = cell_count
     return stable
+
+
+def _column_quality(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        raw = row.get("raw", {}) if isinstance(row.get("raw"), dict) else {}
+        header = [str(value) for value in raw.get("header", [])]
+        grouped[_header_key(header)].append(row)
+
+    groups = [_column_quality_group(group_id, group_rows) for group_id, group_rows in grouped.items()]
+    issues = [
+        issue
+        for group in groups
+        for issue in group.get("issues", [])
+        if isinstance(issue, dict)
+    ]
+    return {
+        "schema_version": "1.0",
+        "issue_count": len(issues),
+        "issues": issues,
+        "groups": groups,
+    }
+
+
+def _column_quality_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    row_count = len(rows)
+    raw_headers = _first_header(rows)
+    metrics = {
+        "date_parse_success_rate": _rate(rows, lambda row: _is_date_like(_transaction_text(row, "date"))),
+        "amount_parse_success_rate": _rate(rows, lambda row: isinstance(_transaction_value(row, "amount"), int)),
+        "merchant_numeric_like_rate": _rate(rows, lambda row: _mostly_numeric(_transaction_text(row, "merchant"))),
+        "merchant_empty_rate": _rate(rows, lambda row: not _transaction_text(row, "merchant")),
+        "merchant_unique_rate": _unique_rate(rows, "merchant"),
+        "card_label_unique_count": _unique_count(rows, "card_label"),
+        "card_label_long_text_rate": _rate(rows, lambda row: len(_transaction_text(row, "card_label")) >= 18),
+        "row_cell_count_distribution": _cell_count_distribution(rows),
+    }
+    issues = _column_quality_issues(group_id, row_count, raw_headers, metrics)
+    return {
+        "group_id": group_id,
+        "row_count": row_count,
+        "header": raw_headers,
+        "metrics": metrics,
+        "issues": issues,
+    }
+
+
+def _column_quality_issues(
+    group_id: str,
+    row_count: int,
+    header: list[str],
+    metrics: dict[str, Any],
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    if row_count < 2:
+        return issues
+
+    date_rate = float(metrics["date_parse_success_rate"])
+    amount_rate = float(metrics["amount_parse_success_rate"])
+    merchant_numeric_rate = float(metrics["merchant_numeric_like_rate"])
+    merchant_empty_rate = float(metrics["merchant_empty_rate"])
+    card_unique_count = int(metrics["card_label_unique_count"])
+    card_unique_rate = card_unique_count / row_count if row_count else 0.0
+    card_long_rate = float(metrics["card_label_long_text_rate"])
+    distribution = metrics["row_cell_count_distribution"]
+    dominant_count = int(distribution.get("dominant_count", 0))
+    dominant_rate = int(distribution.get("dominant_frequency", 0)) / row_count if row_count else 1.0
+
+    if date_rate < 0.8:
+        issues.append(
+            _column_issue(
+                "date_parse_success_rate_low",
+                "날짜 열 성공률이 낮습니다.",
+                group_id,
+                header,
+                "date",
+                date_rate,
+                0.8,
+            )
+        )
+    if amount_rate < 0.9:
+        issues.append(
+            _column_issue(
+                "amount_parse_success_rate_low",
+                "이용금액 열 성공률이 낮습니다.",
+                group_id,
+                header,
+                "amount",
+                amount_rate,
+                0.9,
+            )
+        )
+    if merchant_numeric_rate >= 0.3:
+        issues.append(
+            _column_issue(
+                "merchant_numeric_like_rate_high",
+                "가맹점 열에 숫자처럼 보이는 값이 많습니다.",
+                group_id,
+                header,
+                "merchant",
+                merchant_numeric_rate,
+                0.3,
+            )
+        )
+    if merchant_empty_rate >= 0.2:
+        issues.append(
+            _column_issue(
+                "merchant_empty_rate_high",
+                "가맹점 열의 빈 값 비율이 높습니다.",
+                group_id,
+                header,
+                "merchant",
+                merchant_empty_rate,
+                0.2,
+            )
+        )
+    if (card_unique_count >= 5 and card_unique_rate >= 0.7) or card_long_rate >= 0.4:
+        issues.append(
+            _column_issue(
+                "card_label_column_contaminated",
+                "카드명 열의 고유값/긴 텍스트 비율이 높아 가맹점과 섞였을 수 있습니다.",
+                group_id,
+                header,
+                "card_label",
+                {"unique_count": card_unique_count, "unique_rate": round(card_unique_rate, 3), "long_text_rate": card_long_rate},
+                {"unique_count": 5, "unique_rate": 0.7, "long_text_rate": 0.4},
+            )
+        )
+    if dominant_count and dominant_rate < 0.8:
+        issues.append(
+            _column_issue(
+                "row_cell_count_distribution_unstable",
+                "행별 셀 개수 분포가 불안정합니다.",
+                group_id,
+                header,
+                "raw.cells",
+                round(dominant_rate, 3),
+                0.8,
+            )
+        )
+    return issues
+
+
+def _column_issue(
+    code: str,
+    message: str,
+    group_id: str,
+    header: list[str],
+    field: str,
+    value: Any,
+    threshold: Any,
+) -> dict[str, Any]:
+    return {
+        "code": code,
+        "label": _issue_label(code),
+        "message": message,
+        "group_id": group_id,
+        "header": header,
+        "field": field,
+        "value": value,
+        "threshold": threshold,
+    }
+
+
+def _first_header(rows: list[dict[str, Any]]) -> list[str]:
+    for row in rows:
+        raw = row.get("raw", {}) if isinstance(row.get("raw"), dict) else {}
+        header = [str(value) for value in raw.get("header", [])]
+        if header:
+            return header
+    return []
+
+
+def _rate(rows: list[dict[str, Any]], predicate: Any) -> float:
+    if not rows:
+        return 1.0
+    return round(sum(1 for row in rows if predicate(row)) / len(rows), 3)
+
+
+def _unique_count(rows: list[dict[str, Any]], field: str) -> int:
+    return len({_transaction_text(row, field) for row in rows if _transaction_text(row, field)})
+
+
+def _unique_rate(rows: list[dict[str, Any]], field: str) -> float:
+    if not rows:
+        return 0.0
+    return round(_unique_count(rows, field) / len(rows), 3)
+
+
+def _cell_count_distribution(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: Counter[int] = Counter()
+    for row in rows:
+        raw = row.get("raw", {}) if isinstance(row.get("raw"), dict) else {}
+        cells = [str(value) for value in raw.get("cells", [])]
+        counts[len(cells)] += 1
+    dominant_count, dominant_frequency = counts.most_common(1)[0] if counts else (0, 0)
+    return {
+        "counts": {str(key): value for key, value in sorted(counts.items())},
+        "dominant_count": dominant_count,
+        "dominant_frequency": dominant_frequency,
+    }
+
+
+def _transaction_text(row: dict[str, Any], field: str) -> str:
+    value = _transaction_value(row, field)
+    return str(value).strip() if value is not None else ""
+
+
+def _transaction_value(row: dict[str, Any], field: str) -> Any:
+    transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+    return transaction.get(field)
 
 
 def _source_total_candidates(vision_results: list[VisionResult]) -> list[dict[str, Any]]:
@@ -411,6 +626,12 @@ def _issue_label(code: str) -> str:
         "merchant_too_short": "가맹점 짧음",
         "card_label_merchant_like": "카드명/가맹점 섞임 의심",
         "row_cell_count_unstable": "열 개수 불안정",
+        "date_parse_success_rate_low": "날짜 열 성공률",
+        "amount_parse_success_rate_low": "금액 열 성공률",
+        "merchant_numeric_like_rate_high": "가맹점 숫자 비율",
+        "merchant_empty_rate_high": "가맹점 빈 값 비율",
+        "card_label_column_contaminated": "카드명 열 오염 의심",
+        "row_cell_count_distribution_unstable": "셀 개수 분포 불안정",
     }
     return labels.get(code, code)
 
