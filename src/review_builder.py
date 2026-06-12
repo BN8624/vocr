@@ -152,6 +152,7 @@ def _rows_table(header: list[str], rows: list[dict[str, Any]]) -> str:
     labels = header + [f"col_{index}" for index in range(len(header) + 1, max_cells + 1)]
     head = "".join(f"<th>{escape(label)}</th>" for label in labels)
     body_rows = []
+    cards = []
     for row in rows:
         cells = [str(value) for value in row.get("cells", [])]
         padded = cells + [""] * (max_cells - len(cells))
@@ -164,31 +165,74 @@ def _rows_table(header: list[str], rows: list[dict[str, Any]]) -> str:
             f"<tr{row_class}><th>{local_index}</th>{tds}"
             f"<td>{review_value}</td></tr>"
         )
+
+        field_rows = []
+        for label, value in zip(labels, padded):
+            if value:
+                field_rows.append(
+                    '<div class="row-field">'
+                    f"<dt>{escape(label)}</dt>"
+                    f"<dd>{escape(value)}</dd>"
+                    "</div>"
+                )
+        if reason or row.get("needs_review"):
+            field_rows.append(
+                '<div class="row-field review-field">'
+                "<dt>확인</dt>"
+                f"<dd>{review_value}</dd>"
+                "</div>"
+            )
+        card_class = "row-card needs-review" if row.get("needs_review") else "row-card"
+        cards.append(
+            f'<article class="{card_class}">'
+            f'<h5>행 {local_index}</h5>'
+            f"<dl>{''.join(field_rows)}</dl>"
+            "</article>"
+        )
+
     return (
-        '<div class="table-wrap"><table class="extract-table">'
+        '<div class="table-wrap rows-table-wrap"><table class="extract-table">'
         f"<thead><tr><th>#</th>{head}<th>확인</th></tr></thead>"
         f"<tbody>{''.join(body_rows)}</tbody>"
         "</table></div>"
+        f'<div class="row-card-list">{"".join(cards)}</div>'
     )
 
 
 def _totals_table(totals: list[dict[str, Any]]) -> str:
     rows = []
+    cards = []
     for total in totals:
         row_class = ' class="needs-review"' if total.get("needs_review") else ""
+        label = escape(str(total.get("label", "")))
+        value_text = escape(str(total.get("value_text", "")))
+        amount = escape(str(total.get("amount", "")))
+        reason = escape(str(total.get("review_reason", "")))
         rows.append(
             f"<tr{row_class}>"
-            f"<td>{escape(str(total.get('label', '')))}</td>"
-            f"<td>{escape(str(total.get('value_text', '')))}</td>"
-            f"<td>{escape(str(total.get('amount', '')))}</td>"
-            f"<td>{escape(str(total.get('review_reason', '')))}</td>"
+            f"<td>{label}</td>"
+            f"<td>{value_text}</td>"
+            f"<td>{amount}</td>"
+            f"<td>{reason}</td>"
             "</tr>"
         )
+        card_class = "total-card needs-review" if total.get("needs_review") else "total-card"
+        cards.append(
+            f'<article class="{card_class}">'
+            f"<h5>{label or '합계'}</h5>"
+            "<dl>"
+            f'<div class="row-field"><dt>표시값</dt><dd>{value_text}</dd></div>'
+            f'<div class="row-field"><dt>숫자값</dt><dd>{amount}</dd></div>'
+            f'<div class="row-field review-field"><dt>확인</dt><dd>{reason}</dd></div>'
+            "</dl>"
+            "</article>"
+        )
     return (
-        '<div class="table-wrap"><table class="totals-table">'
+        '<div class="table-wrap totals-table-wrap"><table class="totals-table">'
         "<thead><tr><th>합계 항목</th><th>표시값</th><th>숫자값</th><th>확인</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table></div>"
+        f'<div class="total-card-list">{"".join(cards)}</div>'
     )
 
 
@@ -335,6 +379,10 @@ figcaption {
 .chunk-action {
   margin: 8px 0 0;
 }
+.chunk-action .file-link {
+  width: 100%;
+  justify-content: center;
+}
 .vision {
   margin-top: 12px;
   border-top: 1px solid var(--line);
@@ -409,6 +457,59 @@ tr.needs-review td,
 tr.needs-review th {
   background: #fff5e8;
 }
+.row-card-list,
+.total-card-list {
+  display: none;
+}
+.row-card,
+.total-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+  margin-top: 10px;
+}
+.row-card.needs-review,
+.total-card.needs-review {
+  border-color: #e2a35d;
+  background: #fff5e8;
+}
+.row-card h5,
+.total-card h5 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  letter-spacing: 0;
+}
+.row-card dl,
+.total-card dl {
+  margin: 0;
+}
+.row-field {
+  display: grid;
+  grid-template-columns: minmax(82px, 36%) 1fr;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid var(--line);
+}
+.row-field:first-child {
+  border-top: 0;
+}
+.row-field dt {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.row-field dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.review-field dd {
+  color: #8a3f00;
+  font-weight: 700;
+}
 .review-badge {
   display: inline-flex;
   align-items: center;
@@ -423,11 +524,60 @@ tr.needs-review th {
 }
 @media (max-width: 900px) {
   main {
-    width: min(100% - 20px, 760px);
-    padding-top: 16px;
+    width: 100%;
+    padding: 12px 10px 32px;
+  }
+  h1 {
+    font-size: 22px;
+    margin-bottom: 12px;
+  }
+  h2 {
+    font-size: 18px;
   }
   .page-grid {
     grid-template-columns: 1fr;
+  }
+  .summary {
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 16px;
+  }
+  .summary div {
+    padding: 10px;
+  }
+  .chunks {
+    grid-template-columns: 1fr;
+  }
+  .page-image,
+  .chunk {
+    padding: 10px;
+  }
+  .chunk img {
+    max-height: none;
+  }
+  .vision-status {
+    gap: 6px;
+  }
+  .vision-status span,
+  .file-link {
+    min-height: 30px;
+    font-size: 13px;
+  }
+  .rows-table-wrap,
+  .totals-table-wrap {
+    display: none;
+  }
+  .row-card-list,
+  .total-card-list {
+    display: block;
+  }
+}
+@media (max-width: 420px) {
+  .summary {
+    grid-template-columns: 1fr;
+  }
+  .row-field {
+    grid-template-columns: 1fr;
+    gap: 2px;
   }
 }
 </style>
