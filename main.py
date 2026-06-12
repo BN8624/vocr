@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.chunk_builder import build_chunks
+from src.excel_exporter import export_excel, load_excel_export
 from src.normalizer import build_transactions, load_normalization_output
 from src.page_renderer import render_pdf_pages
 from src.profile_store import build_mapping_suggestions, load_mapping_suggestions
@@ -49,6 +50,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "profiles_dir": "profiles",
         "summary_filename": "summary.json",
     },
+    "export": {"excel_filename": "result.xlsx"},
 }
 
 
@@ -119,6 +121,7 @@ def write_summary(
     normalized_amount_total: int,
     validation_issue_row_count: int,
     checksum_status: str,
+    excel_path: Path | None,
 ) -> Path:
     summary_path = output_dir / config["output"]["summary_filename"]
     summary = {
@@ -138,6 +141,7 @@ def write_summary(
         "normalized_amount_total": normalized_amount_total,
         "validation_issue_row_count": validation_issue_row_count,
         "checksum_status": checksum_status,
+        "excel_path": str(excel_path) if excel_path else "",
     }
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -289,6 +293,21 @@ def main() -> int:
         else:
             validation_output = load_validation_output(output_dirs["merged"])
 
+        excel_output = None
+        if validation_output:
+            logging.info("Exporting reviewable Excel workbook...")
+            excel_output = export_excel(
+                validation_output=validation_output,
+                output_dir=output_dirs["root"],
+                filename=str(config.get("export", {}).get("excel_filename", "result.xlsx")),
+            )
+            phase = "phase_8_excel_export"
+        else:
+            excel_output = load_excel_export(
+                output_dir=output_dirs["root"],
+                filename=str(config.get("export", {}).get("excel_filename", "result.xlsx")),
+            )
+
         logging.info("Building review HTML...")
         review_path = build_review_html(
             output_dir=output_dirs["root"],
@@ -301,6 +320,7 @@ def main() -> int:
             mapping_output=mapping_output,
             normalization_output=normalization_output,
             validation_output=validation_output,
+            excel_output=excel_output,
         )
 
         summary_path = write_summary(
@@ -322,6 +342,7 @@ def main() -> int:
             normalized_amount_total=normalization_output.amount_total if normalization_output else 0,
             validation_issue_row_count=validation_output.issue_row_count if validation_output else 0,
             checksum_status=validation_output.checksum_status if validation_output else "not_run",
+            excel_path=excel_output.workbook_path if excel_output else None,
         )
 
     except Exception as exc:

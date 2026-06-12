@@ -81,6 +81,21 @@ amount-only columns often require visual position context. The browser can
 download `mapping-profile.json`. This keeps the mapping review usable on iPhone
 before automatic local profile saving is added.
 
+## Phase 6 to 8 normalized data, validation, and Excel
+
+When cached Vision rows and mapping suggestions exist, the pipeline also writes:
+
+- `output/merged/transactions.jsonl`
+- `output/merged/transactions_validated.jsonl`
+- `output/merged/normalization_summary.json`
+- `output/merged/validation_summary.json`
+- `output/merged/validation_issues.json`
+- `output/result.xlsx`
+
+`review.html` shows normalization, validation, and Excel export sections. Excel
+contains `전체명세`, `검산`, `원본셀`, `추가필드`, and `확인필요` sheets. Rows that
+need review are not hidden or discarded.
+
 ## Sample smoke test
 
 Sample PDFs live in `견본/`. The trailing number in each filename is the

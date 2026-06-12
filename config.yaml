@@ -32,3 +32,6 @@ output:
   merged_dir: merged
   profiles_dir: profiles
   summary_filename: summary.json
+
+export:
+  excel_filename: result.xlsx

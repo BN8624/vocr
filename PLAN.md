@@ -23,6 +23,13 @@
   ambiguous or conflicting columns while collapsing confident automatic matches.
   Mapping cards include approximate column position, neighboring headers, and
   source chunk links so amount-only columns can be judged visually.
+- Phase 6 normalization is implemented: mapped raw cells are converted into
+  `transactions.jsonl` while preserving original cells and extra fields.
+- Phase 7 validation is implemented: validated transactions, validation issues,
+  checksum status, and review samples are written under `output/merged/` and
+  surfaced in `review.html`.
+- Phase 8 Excel export is implemented: `result.xlsx` contains `전체명세`, `검산`,
+  `원본셀`, `추가필드`, and `확인필요` sheets.
 
 ---
 

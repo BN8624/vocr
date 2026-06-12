@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from src.chunk_builder import ChunkImage
+from src.excel_exporter import ExcelExportOutput
 from src.normalizer import NormalizationOutput
 from src.page_renderer import PageImage
 from src.profile_store import MAPPING_OPTIONS, MappingOutput
@@ -25,6 +26,7 @@ def build_review_html(
     mapping_output: MappingOutput | None = None,
     normalization_output: NormalizationOutput | None = None,
     validation_output: ValidationOutput | None = None,
+    excel_output: ExcelExportOutput | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     review_path = output_dir / "review.html"
@@ -65,6 +67,8 @@ def build_review_html(
         html.append(_normalization_block(review_path, normalization_output))
     if validation_output:
         html.append(_validation_block(review_path, validation_output))
+    if excel_output:
+        html.append(_excel_block(review_path, excel_output))
 
     for page in pages:
         page_src = _relative_src(review_path, page.image_path)
@@ -358,6 +362,26 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
 
     parts.append("</section>")
     return "\n".join(parts)
+
+
+def _excel_block(review_path: Path, excel_output: ExcelExportOutput) -> str:
+    sheet_text = ", ".join(excel_output.sheet_names) if excel_output.sheet_names else "전체명세, 검산, 원본셀, 추가필드, 확인필요"
+    return "\n".join(
+        [
+            '<section class="excel-panel">',
+            "<h2>엑셀 출력</h2>",
+            '<p class="mapping-ok">검증 결과를 포함한 엑셀 파일을 만들었습니다. 확인필요 행도 숨기지 않고 별도 시트에 담았습니다.</p>',
+            '<div class="summary excel-stats">',
+            f"<div><strong>거래</strong><span>{excel_output.transaction_count}</span></div>",
+            f"<div><strong>확인필요</strong><span>{excel_output.review_count}</span></div>",
+            f"<div><strong>시트</strong><span>{escape(sheet_text)}</span></div>",
+            "</div>",
+            '<div class="merge-links">',
+            _file_link(review_path, excel_output.workbook_path, excel_output.workbook_path.name),
+            "</div>",
+            "</section>",
+        ]
+    )
 
 
 def _checksum_details(checksum: dict[str, Any]) -> str:
@@ -895,10 +919,18 @@ h3 {
   padding-top: 18px;
   border-top: 2px solid var(--line);
 }
+.excel-panel {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 2px solid var(--line);
+}
 .normalization-stats {
   margin-bottom: 10px;
 }
 .validation-stats {
+  margin-bottom: 10px;
+}
+.excel-stats {
   margin-bottom: 10px;
 }
 .normalization-details {
