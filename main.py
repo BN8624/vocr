@@ -8,6 +8,7 @@ from typing import Any
 
 from src.chunk_builder import build_chunks
 from src.page_renderer import render_pdf_pages
+from src.profile_store import build_mapping_suggestions, load_mapping_suggestions
 from src.review_builder import build_review_html
 from src.row_merger import build_row_outputs, load_merge_output
 from src.vision_extractor import extract_chunks_with_vision, load_cached_vision_results
@@ -43,6 +44,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "chunks_dir": "chunks",
         "cache_dir": "cache",
         "merged_dir": "merged",
+        "profiles_dir": "profiles",
         "summary_filename": "summary.json",
     },
 }
@@ -89,6 +91,7 @@ def ensure_output_dirs(output_dir: Path, config: dict[str, Any]) -> dict[str, Pa
         "chunks": output_dir / output_cfg["chunks_dir"],
         "cache": output_dir / output_cfg["cache_dir"],
         "merged": output_dir / output_cfg["merged_dir"],
+        "profiles": Path(output_cfg.get("profiles_dir", "profiles")),
     }
     for path in dirs.values():
         path.mkdir(parents=True, exist_ok=True)
@@ -108,6 +111,7 @@ def write_summary(
     vision_errors: int,
     raw_row_count: int,
     duplicate_group_count: int,
+    mapping_group_count: int,
 ) -> Path:
     summary_path = output_dir / config["output"]["summary_filename"]
     summary = {
@@ -121,6 +125,7 @@ def write_summary(
         "vision_errors": vision_errors,
         "raw_row_count": raw_row_count,
         "duplicate_group_count": duplicate_group_count,
+        "mapping_group_count": mapping_group_count,
     }
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -232,6 +237,21 @@ def main() -> int:
         else:
             merge_output = load_merge_output(output_dirs["merged"])
 
+        mapping_output = None
+        if merge_output:
+            logging.info("Building column mapping suggestions...")
+            mapping_output = build_mapping_suggestions(
+                merge_output=merge_output,
+                output_dir=output_dirs["root"],
+                profiles_dir=output_dirs["profiles"],
+            )
+            phase = "phase_5_mapping_review"
+        else:
+            mapping_output = load_mapping_suggestions(
+                output_dir=output_dirs["root"],
+                profiles_dir=output_dirs["profiles"],
+            )
+
         logging.info("Building review HTML...")
         review_path = build_review_html(
             output_dir=output_dirs["root"],
@@ -241,6 +261,7 @@ def main() -> int:
             input_pdf=input_pdf,
             vision_results=vision_results,
             merge_output=merge_output,
+            mapping_output=mapping_output,
         )
 
         summary_path = write_summary(
@@ -256,6 +277,7 @@ def main() -> int:
             vision_errors=sum(1 for result in vision_results if result.status == "error"),
             raw_row_count=merge_output.raw_row_count if merge_output else 0,
             duplicate_group_count=merge_output.duplicate_group_count if merge_output else 0,
+            mapping_group_count=len(mapping_output.table_groups) if mapping_output else 0,
         )
 
     except Exception as exc:

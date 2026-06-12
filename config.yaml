@@ -30,4 +30,5 @@ output:
   chunks_dir: chunks
   cache_dir: cache
   merged_dir: merged
+  profiles_dir: profiles
   summary_filename: summary.json

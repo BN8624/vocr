@@ -7,6 +7,7 @@ from typing import Any
 
 from src.chunk_builder import ChunkImage
 from src.page_renderer import PageImage
+from src.profile_store import MAPPING_OPTIONS, MappingOutput
 from src.row_merger import RowMergeOutput
 from src.vision_extractor import VisionResult
 
@@ -19,6 +20,7 @@ def build_review_html(
     input_pdf: Path,
     vision_results: list[VisionResult] | None = None,
     merge_output: RowMergeOutput | None = None,
+    mapping_output: MappingOutput | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     review_path = output_dir / "review.html"
@@ -53,6 +55,8 @@ def build_review_html(
     ]
     if merge_output:
         html.append(_merge_block(review_path, merge_output))
+    if mapping_output:
+        html.append(_mapping_block(review_path, mapping_output))
 
     for page in pages:
         page_src = _relative_src(review_path, page.image_path)
@@ -96,9 +100,77 @@ def build_review_html(
 
         html.extend(["</div>", "</div>", "</section>"])
 
-    html.extend(["</main>", "</body>", "</html>"])
+    html.extend([_script_block(), "</main>", "</body>", "</html>"])
     review_path.write_text("\n".join(html), encoding="utf-8")
     return review_path
+
+
+def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
+    parts = [
+        '<section class="mapping-panel">',
+        "<h2>열 매핑 확인</h2>",
+        '<p class="note">AI가 읽은 열을 실제 의미에 맞게 확인하세요. 저장 버튼은 이 화면에서 JSON 파일을 내려받습니다.</p>',
+        '<div class="merge-links">',
+        _file_link(review_path, mapping_output.suggestions_path, "mapping_suggestions.json"),
+        "</div>",
+    ]
+
+    for group in mapping_output.table_groups:
+        group_id = str(group.get("group_id", "unknown"))
+        parts.extend(
+            [
+                f'<article class="mapping-group" data-group-id="{escape(group_id)}">',
+                f"<h3>테이블 그룹 {escape(group_id)}</h3>",
+                f'<p class="note">행 {int(group.get("row_count", 0))}개 기준 추천입니다.</p>',
+                '<div class="mapping-columns">',
+            ]
+        )
+        for column in group.get("columns", []):
+            suggested = str(column.get("suggested_field", "extra"))
+            option_html = _mapping_options_html(mapping_output.option_labels, suggested)
+            samples = [str(value) for value in column.get("sample_values", [])]
+            sample_html = "".join(f"<li>{escape(value)}</li>" for value in samples) or "<li>샘플 없음</li>"
+            parts.extend(
+                [
+                    '<article class="mapping-column">',
+                    f'<h4>{escape(str(column.get("column_id", "")))} · {escape(str(column.get("header", "")))}</h4>',
+                    '<label>',
+                    "<span>필드 선택</span>",
+                    (
+                        f'<select data-column-id="{escape(str(column.get("column_id", "")))}" '
+                        f'data-header="{escape(str(column.get("header", "")))}" '
+                        f'data-suggested="{escape(suggested)}">'
+                        f"{option_html}"
+                        "</select>"
+                    ),
+                    "</label>",
+                    f'<p class="note">추천: {escape(mapping_output.option_labels.get(suggested, suggested))} · {escape(str(column.get("confidence", "")))}</p>',
+                    f'<p class="note">{escape(str(column.get("reason", "")))}</p>',
+                    f"<ul>{sample_html}</ul>",
+                    "</article>",
+                ]
+            )
+        parts.extend(["</div>", "</article>"])
+
+    parts.extend(
+        [
+            '<div class="mapping-actions">',
+            '<button type="button" id="download-mapping">매핑 JSON 내려받기</button>',
+            '<span id="mapping-message" class="note"></span>',
+            "</div>",
+            "</section>",
+        ]
+    )
+    return "\n".join(parts)
+
+
+def _mapping_options_html(option_labels: dict[str, str], selected: str) -> str:
+    options = []
+    for option in MAPPING_OPTIONS:
+        label = option_labels.get(option, option)
+        selected_attr = " selected" if option == selected else ""
+        options.append(f'<option value="{escape(option)}"{selected_attr}>{escape(label)}</option>')
+    return "".join(options)
 
 
 def _merge_block(review_path: Path, merge_output: RowMergeOutput) -> str:
@@ -329,6 +401,48 @@ def _relative_src(base_file: Path, target: Path) -> str:
     return target.resolve().relative_to(base_file.parent.resolve()).as_posix()
 
 
+def _script_block() -> str:
+    return """
+<script>
+(() => {
+  const button = document.getElementById('download-mapping');
+  const message = document.getElementById('mapping-message');
+  if (!button) return;
+  button.addEventListener('click', () => {
+    const groups = [...document.querySelectorAll('.mapping-group')].map(group => {
+      const columns = [...group.querySelectorAll('select')].map(select => ({
+        column_id: select.dataset.columnId || '',
+        header: select.dataset.header || '',
+        suggested_field: select.dataset.suggested || '',
+        selected_field: select.value
+      }));
+      return {
+        group_id: group.dataset.groupId || '',
+        columns
+      };
+    });
+    const payload = {
+      schema_version: '1.0',
+      status: 'user_confirmed_download',
+      created_at: new Date().toISOString(),
+      table_groups: groups
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'mapping-profile.json';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    if (message) message.textContent = '매핑 JSON을 내려받았습니다.';
+  });
+})();
+</script>
+""".strip()
+
+
 def _style_block() -> str:
     return """
 <style>
@@ -419,6 +533,74 @@ h3 {
   margin: 6px 0 0;
   font-size: 13px;
   line-height: 1.45;
+}
+.mapping-panel {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 2px solid var(--line);
+}
+.mapping-panel > .note {
+  margin-top: 0;
+}
+.mapping-group {
+  margin-top: 14px;
+}
+.mapping-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.mapping-column {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 10px;
+}
+.mapping-column h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.35;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.mapping-column label span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.mapping-column select {
+  width: 100%;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 15px;
+  padding: 6px 8px;
+}
+.mapping-column ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.mapping-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+.mapping-actions button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  padding: 8px 14px;
 }
 .summary strong,
 .summary span {
@@ -664,6 +846,12 @@ tr.needs-review th {
   }
   .duplicate-groups {
     grid-template-columns: 1fr;
+  }
+  .mapping-columns {
+    grid-template-columns: 1fr;
+  }
+  .mapping-actions button {
+    width: 100%;
   }
   .chunks {
     grid-template-columns: 1fr;
