@@ -22,7 +22,8 @@
   generated from merged rows, and `review.html` asks the user to confirm only
   ambiguous or conflicting columns while collapsing confident automatic matches.
   Mapping cards include approximate column position, neighboring headers, and
-  source chunk links so amount-only columns can be judged visually.
+  source chunk links so amount-only columns can be judged visually. Downloaded
+  mapping profiles can be reused from `profiles/*.json` or via `--mapping-profile`.
 - Phase 6 normalization is implemented: mapped raw cells are converted into
   `transactions.jsonl` while preserving original cells and extra fields.
 - Phase 7 validation is implemented: validated transactions, validation issues,

@@ -178,6 +178,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Process only the first N chunks with Vision LLM. Useful for API smoke tests.",
     )
+    parser.add_argument(
+        "--mapping-profile",
+        action="append",
+        default=[],
+        help="Apply a downloaded mapping-profile.json file. Can be passed multiple times.",
+    )
     return parser.parse_args()
 
 
@@ -256,10 +262,12 @@ def main() -> int:
         mapping_output = None
         if merge_output:
             logging.info("Building column mapping suggestions...")
+            profile_paths = [Path(path).expanduser().resolve() for path in args.mapping_profile]
             mapping_output = build_mapping_suggestions(
                 merge_output=merge_output,
                 output_dir=output_dirs["root"],
                 profiles_dir=output_dirs["profiles"],
+                profile_paths=profile_paths,
             )
             phase = "phase_5_mapping_review"
         else:

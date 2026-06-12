@@ -40,12 +40,14 @@ class MappingOutput:
     profile_dir: Path
     table_groups: list[dict[str, Any]]
     option_labels: dict[str, str]
+    applied_profiles: list[str]
 
 
 def build_mapping_suggestions(
     merge_output: RowMergeOutput | None,
     output_dir: Path,
     profiles_dir: Path,
+    profile_paths: list[Path] | None = None,
 ) -> MappingOutput | None:
     if not merge_output or not merge_output.rows_merged_path.exists():
         return None
@@ -54,11 +56,13 @@ def build_mapping_suggestions(
     rows = _read_jsonl(merge_output.rows_merged_path)
     groups = _group_rows_by_header(rows)
     table_groups = [_build_table_group(group_id, rows) for group_id, rows in groups.items()]
+    applied_profiles = _apply_saved_profiles(table_groups, profiles_dir, profile_paths or [])
 
     payload = {
         "schema_version": "1.0",
-        "status": "suggested",
+        "status": "profile_applied" if applied_profiles else "suggested",
         "profile_dir": str(profiles_dir),
+        "applied_profiles": applied_profiles,
         "option_labels": _option_labels(),
         "table_groups": table_groups,
     }
@@ -70,6 +74,7 @@ def build_mapping_suggestions(
         profile_dir=profiles_dir,
         table_groups=table_groups,
         option_labels=payload["option_labels"],
+        applied_profiles=applied_profiles,
     )
 
 
@@ -83,7 +88,116 @@ def load_mapping_suggestions(output_dir: Path, profiles_dir: Path) -> MappingOut
         profile_dir=profiles_dir,
         table_groups=list(payload.get("table_groups", [])),
         option_labels=dict(payload.get("option_labels", _option_labels())),
+        applied_profiles=[str(value) for value in payload.get("applied_profiles", [])],
     )
+
+
+def _apply_saved_profiles(
+    table_groups: list[dict[str, Any]],
+    profiles_dir: Path,
+    explicit_paths: list[Path],
+) -> list[str]:
+    profiles = _load_profiles(profiles_dir, explicit_paths)
+    if not profiles:
+        return []
+
+    applied: list[str] = []
+    for group in table_groups:
+        profile = _matching_profile(group, profiles)
+        if not profile:
+            continue
+        profile_name = str(profile["path"])
+        selected_by_column = _profile_columns_by_id(profile["payload"], group)
+        if not selected_by_column:
+            continue
+        for column in group.get("columns", []):
+            if not isinstance(column, dict):
+                continue
+            selected = selected_by_column.get(str(column.get("column_id", "")))
+            if selected not in MAPPING_OPTIONS:
+                continue
+            column["selected_field"] = selected
+            column["suggested_field"] = selected
+            column["confidence"] = "profile"
+            column["reason"] = f"저장된 매핑 프로필 적용: {Path(profile_name).name}"
+            column["requires_review"] = False
+            column["review_reason"] = ""
+            column["profile_source"] = profile_name
+        group["review_column_count"] = sum(
+            1 for column in group.get("columns", []) if isinstance(column, dict) and column.get("requires_review")
+        )
+        group["auto_column_count"] = sum(
+            1 for column in group.get("columns", []) if isinstance(column, dict) and not column.get("requires_review")
+        )
+        group["profile_source"] = profile_name
+        if profile_name not in applied:
+            applied.append(profile_name)
+    return applied
+
+
+def _load_profiles(profiles_dir: Path, explicit_paths: list[Path]) -> list[dict[str, Any]]:
+    paths: list[Path] = []
+    if profiles_dir.exists():
+        paths.extend(sorted(path for path in profiles_dir.glob("*.json") if path.is_file()))
+    paths.extend(explicit_paths)
+
+    profiles: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for path in paths:
+        resolved = path.expanduser().resolve()
+        if resolved in seen or not resolved.exists():
+            continue
+        seen.add(resolved)
+        try:
+            payload = json.loads(resolved.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            profiles.append({"path": str(resolved), "payload": payload})
+    return profiles
+
+
+def _matching_profile(
+    group: dict[str, Any],
+    profiles: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    group_id = str(group.get("group_id", ""))
+    header_key = _header_key([str(value) for value in group.get("header", [])])
+    for profile in profiles:
+        payload = profile["payload"]
+        for profile_group in payload.get("table_groups", []):
+            if not isinstance(profile_group, dict):
+                continue
+            profile_group_id = str(profile_group.get("group_id", ""))
+            profile_header_key = _header_key([str(value) for value in profile_group.get("header", [])])
+            if profile_group_id in {group_id, header_key} or profile_header_key == header_key:
+                return profile
+    return None
+
+
+def _profile_columns_by_id(
+    profile_payload: dict[str, Any],
+    group: dict[str, Any],
+) -> dict[str, str]:
+    group_id = str(group.get("group_id", ""))
+    header_key = _header_key([str(value) for value in group.get("header", [])])
+    for profile_group in profile_payload.get("table_groups", []):
+        if not isinstance(profile_group, dict):
+            continue
+        profile_group_id = str(profile_group.get("group_id", ""))
+        profile_header_key = _header_key([str(value) for value in profile_group.get("header", [])])
+        if profile_group_id not in {group_id, header_key} and profile_header_key != header_key:
+            continue
+        selected: dict[str, str] = {}
+        for column in profile_group.get("columns", []):
+            if not isinstance(column, dict):
+                continue
+            column_id = str(column.get("column_id", ""))
+            field = str(column.get("selected_field") or column.get("suggested_field") or "")
+            if column_id and field:
+                selected[column_id] = field
+        return selected
+    return {}
 
 
 def _group_rows_by_header(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:

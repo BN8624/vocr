@@ -78,8 +78,15 @@ matches are collapsed, and only ambiguous or conflicting columns are shown first
 The user can adjust those columns with select menus. Each mapping card includes
 the approximate column order, neighboring headers, and source chunk links because
 amount-only columns often require visual position context. The browser can
-download `mapping-profile.json`. This keeps the mapping review usable on iPhone
-before automatic local profile saving is added.
+download `mapping-profile.json`.
+
+To reuse a downloaded mapping, put it under `profiles/` or pass it explicitly:
+
+```bash
+python main.py --input samples/card.pdf --output output --dry-run --mapping-profile profiles/mapping-profile.json
+```
+
+Profiles in `profiles/*.json` are loaded automatically on future runs.
 
 ## Phase 6 to 8 normalized data, validation, and Excel
 

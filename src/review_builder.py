@@ -126,6 +126,11 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
         _file_link(review_path, mapping_output.suggestions_path, "mapping_suggestions.json"),
         "</div>",
     ]
+    if mapping_output.applied_profiles:
+        profile_names = ", ".join(Path(path).name for path in mapping_output.applied_profiles)
+        parts.append(
+            f'<p class="mapping-ok">저장된 매핑 프로필 적용됨: {escape(profile_names)}</p>'
+        )
 
     for group in mapping_output.table_groups:
         group_id = str(group.get("group_id", "unknown"))
