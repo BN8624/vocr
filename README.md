@@ -18,6 +18,7 @@ Image-based Korean credit card statement PDFs를 Vision LLM으로 읽고, 사람
 - 매핑 프로필 다운로드, PC 저장, 재사용
 - 거래 정규화
 - 검증 결과 생성
+- 검산 기준 원본 합계 선택 및 `merged/review_state.json` 저장
 - `result.xlsx` export
 
 ## 중복 행 처리
@@ -121,6 +122,7 @@ output/
     mapping_suggestions.json
     transactions.jsonl
     transactions_validated.jsonl
+    review_state.json
     normalization_summary.json
     validation_summary.json
     validation_issues.json
@@ -143,10 +145,13 @@ Excel 시트:
 
 검산 상태는 다음처럼 구분합니다.
 
-- `검산 일치`: 추출 합계와 원본 합계 후보가 일치
-- `검산 불일치`: 전체 청크를 봤지만 합계가 맞지 않음
+- `검산 일치`: 사용자가 선택한 원본 합계와 추출 합계가 일치
+- `검산 불일치`: 사용자가 선택한 원본 합계와 추출 합계가 맞지 않음
+- `검산 기준 미선택`: 원본 합계 후보는 있지만 아직 사용자가 기준을 선택하지 않음
 - `원본 합계 없음`: 전체 청크를 봤지만 원본 합계 후보를 찾지 못함
 - `합계 확인 미완료`: 일부 청크만 Vision 결과가 있어 다음 페이지/청크의 합계를 아직 못 봤을 수 있음
+
+`review.html`의 검증 결과에서 원본 합계 후보를 선택하고 `검산 기준 저장`을 누르면 현재 output의 `merged/review_state.json`에 저장됩니다. 저장 후 같은 명령을 다시 실행하면 선택된 합계만 기준으로 검산합니다.
 
 ## 견본 테스트
 

@@ -31,6 +31,7 @@ Implemented:
 - Phase 5C: `serve_review.py` review server for saving confirmed mappings directly from iPhone/Browser
 - Phase 6: transaction normalization into `transactions.jsonl`
 - Phase 7: validation into `transactions_validated.jsonl`, `validation_summary.json`, and `validation_issues.json`
+- Phase 7B: user-selected checksum total saved in `merged/review_state.json`
 - Phase 8: Excel export to `result.xlsx`
 
 Generated Excel sheets:
@@ -176,11 +177,13 @@ Implemented checks include:
 - row cell count consistency
 - duplicate candidate propagation from merge step
 - exact duplicate representative rows are used for transactions; excluded duplicates remain in raw cells only
+- checksum uses the user-selected source total when `merged/review_state.json` is present
 
 Checksum status meanings:
 
-- `matched`: extracted amount total or billing total matches a source total candidate
-- `mismatch`: all available chunks were processed and totals differ
+- `user_confirmed_total_matched`: selected source total matches extracted amount or billing total
+- `user_confirmed_total_mismatch`: selected source total differs from extracted totals
+- `no_user_total_selected`: source totals exist, but the user has not selected the checksum basis yet
 - `no_source_total`: all available chunks were processed and no source total was found
 - `incomplete_source_scan`: only some chunks have Vision results, so a later page/chunk may still contain totals
 
@@ -232,8 +235,8 @@ Keep `.gitignore` enforcing those boundaries.
 
 Good next improvements:
 
-1. Add user-selected checksum totals so validation uses the total confirmed in review, not any automatically detected candidate.
-2. Add column-level validation for date parse rate, amount parse rate, merchant numeric rate, card-label uniqueness, and row cell-count distribution.
-3. Improve profile matching by stronger table signatures, not only header/group id.
-4. Add a targeted total/summary-page extraction pass so totals on later pages can be captured without reprocessing every body chunk.
-5. Add more validation tests with tiny fixture JSONL files.
+1. Add column-level validation for date parse rate, amount parse rate, merchant numeric rate, card-label uniqueness, and row cell-count distribution.
+2. Improve profile matching by stronger table signatures, not only header/group id.
+3. Add a targeted total/summary-page extraction pass so totals on later pages can be captured without reprocessing every body chunk.
+4. Add more validation tests with tiny fixture JSONL files.
+5. Split `review_builder.py` into template/static assets once behavior stabilizes.

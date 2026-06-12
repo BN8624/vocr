@@ -128,6 +128,10 @@ def _write_checksum(sheet: Any, summary: dict[str, Any]) -> None:
     sheet.append(["message", checksum.get("message", "")])
     sheet.append(["amount_total", checksum.get("amount_total", "")])
     sheet.append(["billing_amount_total", checksum.get("billing_amount_total", "")])
+    selected = checksum.get("selected_total", {}) if isinstance(checksum.get("selected_total"), dict) else {}
+    sheet.append(["selected_total_id", checksum.get("selected_total_id", "")])
+    sheet.append(["selected_total_label", selected.get("label", "")])
+    sheet.append(["selected_total_amount", selected.get("amount", "")])
     sheet.append(["difference", checksum.get("difference", "")])
     sheet.append(["processed_chunk_count", checksum.get("processed_chunk_count", "")])
     sheet.append(["expected_chunk_count", checksum.get("expected_chunk_count", "")])
@@ -146,6 +150,20 @@ def _write_checksum(sheet: Any, summary: dict[str, Any]) -> None:
         )
     if not checksum.get("source_total_candidates"):
         sheet.append(["원본 합계 후보 없음", "", "", ""])
+    auto_matches = [item for item in checksum.get("auto_match_candidates", []) or [] if isinstance(item, dict)]
+    if auto_matches:
+        sheet.append([])
+        sheet.append(["auto_match_field", "source_total_label", "amount", "chunk_id"])
+        for item in auto_matches:
+            candidate = item.get("candidate", {}) if isinstance(item.get("candidate"), dict) else {}
+            sheet.append(
+                [
+                    item.get("field", ""),
+                    candidate.get("label", ""),
+                    candidate.get("amount", ""),
+                    candidate.get("chunk_id", ""),
+                ]
+            )
 
 
 def _write_raw_cells(sheet: Any, rows: list[dict[str, Any]]) -> None:

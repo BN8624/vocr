@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from hashlib import sha1
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,7 @@ def build_validation(
     vision_results: list[VisionResult] | None,
     merged_dir: Path,
     expected_chunk_count: int | None = None,
+    review_state: dict[str, Any] | None = None,
 ) -> ValidationOutput | None:
     if not normalization_output or not normalization_output.transactions_path.exists():
         return None
@@ -43,6 +45,7 @@ def build_validation(
         source_totals=source_totals,
         processed_chunk_count=len(vision_results or []),
         expected_chunk_count=expected_chunk_count,
+        review_state=review_state or {},
     )
 
     validated_rows = [_with_validation(row, row_issues.get(_row_key(row), [])) for row in rows]
@@ -210,6 +213,7 @@ def _source_total_candidates(vision_results: list[VisionResult]) -> list[dict[st
             seen.add(key)
             candidates.append(
                 {
+                    "id": _total_id(label, amount, result.page_number, result.chunk_id),
                     "label": label,
                     "amount": amount,
                     "chunk_id": result.chunk_id,
@@ -225,6 +229,7 @@ def _checksum_summary(
     source_totals: list[dict[str, Any]],
     processed_chunk_count: int,
     expected_chunk_count: int | None,
+    review_state: dict[str, Any],
 ) -> dict[str, Any]:
     expected = expected_chunk_count or processed_chunk_count
     is_complete_scan = expected <= 0 or processed_chunk_count >= expected
@@ -233,6 +238,10 @@ def _checksum_summary(
         "expected_chunk_count": expected,
         "is_complete_scan": is_complete_scan,
     }
+
+    selected_total_id = _selected_total_id(review_state)
+    selected_total = _find_selected_total(source_totals, selected_total_id)
+    auto_matches = _auto_match_candidates(amount_total, billing_amount_total, source_totals)
 
     if not source_totals:
         if not is_complete_scan:
@@ -246,6 +255,9 @@ def _checksum_summary(
                 "billing_amount_total": billing_amount_total,
                 "source_total_candidates": [],
                 "matched_total": None,
+                "selected_total": None,
+                "selected_total_id": selected_total_id,
+                "auto_match_candidates": [],
                 "difference": None,
                 **scan_note,
             }
@@ -256,69 +268,101 @@ def _checksum_summary(
             "billing_amount_total": billing_amount_total,
             "source_total_candidates": [],
             "matched_total": None,
+            "selected_total": None,
+            "selected_total_id": selected_total_id,
+            "auto_match_candidates": [],
             "difference": None,
             **scan_note,
         }
-
-    targets = [
-        ("amount_total", amount_total),
-        ("billing_amount_total", billing_amount_total),
-    ]
-    for total_name, total_value in targets:
-        for candidate in source_totals:
-            if int(candidate["amount"]) == total_value:
-                return {
-                    "status": "matched",
-                    "message": f"{total_name}이 원본 합계 후보와 일치합니다.",
-                    "amount_total": amount_total,
-                    "billing_amount_total": billing_amount_total,
-                    "source_total_candidates": source_totals,
-                    "matched_total": candidate,
-                    "matched_field": total_name,
-                    "difference": 0,
-                    **scan_note,
-                }
 
     if not is_complete_scan:
         return {
             "status": "incomplete_source_scan",
             "message": (
-                f"원본 합계 후보는 찾았지만 전체 {expected}개 청크 중 {processed_chunk_count}개만 "
-                "Vision 결과가 있어 최종 검산으로 확정하지 않았습니다."
+                f"전체 {expected}개 청크 중 {processed_chunk_count}개만 Vision 결과가 있어 "
+                "선택한 합계가 있더라도 최종 검산으로 확정하지 않았습니다."
             ),
             "amount_total": amount_total,
             "billing_amount_total": billing_amount_total,
             "source_total_candidates": source_totals,
-            "matched_total": None,
+            "matched_total": selected_total,
+            "selected_total": selected_total,
+            "selected_total_id": selected_total_id,
+            "auto_match_candidates": auto_matches,
             "difference": None,
             **scan_note,
         }
 
-    closest = min(
-        (
-            {
-                "candidate": candidate,
-                "field": field,
-                "difference": total_value - int(candidate["amount"]),
-                "abs_difference": abs(total_value - int(candidate["amount"])),
+    if not selected_total_id:
+        return {
+            "status": "no_user_total_selected",
+            "message": "검산 기준 원본 합계를 아직 선택하지 않았습니다. 자동 일치는 참고로만 표시합니다.",
+            "amount_total": amount_total,
+            "billing_amount_total": billing_amount_total,
+            "source_total_candidates": source_totals,
+            "matched_total": auto_matches[0]["candidate"] if auto_matches else None,
+            "selected_total": None,
+            "selected_total_id": "",
+            "auto_match_candidates": auto_matches,
+            "difference": None,
+            **scan_note,
+        }
+
+    if not selected_total:
+        return {
+            "status": "no_user_total_selected",
+            "message": "저장된 검산 기준 합계를 현재 Vision 후보에서 찾지 못했습니다. 다시 선택해 주세요.",
+            "amount_total": amount_total,
+            "billing_amount_total": billing_amount_total,
+            "source_total_candidates": source_totals,
+            "matched_total": auto_matches[0]["candidate"] if auto_matches else None,
+            "selected_total": None,
+            "selected_total_id": selected_total_id,
+            "auto_match_candidates": auto_matches,
+            "difference": None,
+            **scan_note,
+        }
+
+    selected_amount = int(selected_total["amount"])
+    targets = [
+        ("amount_total", amount_total),
+        ("billing_amount_total", billing_amount_total),
+    ]
+    for total_name, total_value in targets:
+        if selected_amount == total_value:
+            return {
+                "status": "user_confirmed_total_matched",
+                "message": f"사용자가 선택한 원본 합계가 {total_name}과 일치합니다.",
+                "amount_total": amount_total,
+                "billing_amount_total": billing_amount_total,
+                "source_total_candidates": source_totals,
+                "matched_total": selected_total,
+                "selected_total": selected_total,
+                "selected_total_id": selected_total_id,
+                "matched_field": total_name,
+                "auto_match_candidates": auto_matches,
+                "difference": 0,
+                **scan_note,
             }
-            for field, total_value in targets
-            for candidate in source_totals
-        ),
-        key=lambda item: item["abs_difference"],
+
+    closest_field, closest_value = min(
+        targets,
+        key=lambda item: abs(item[1] - selected_amount),
     )
     return {
-        "status": "mismatch",
-        "message": "정규화 합계가 원본 합계 후보와 일치하지 않습니다.",
+        "status": "user_confirmed_total_mismatch",
+        "message": "사용자가 선택한 원본 합계와 정규화 합계가 일치하지 않습니다.",
         "amount_total": amount_total,
         "billing_amount_total": billing_amount_total,
         "source_total_candidates": source_totals,
-        "matched_total": closest["candidate"],
-        "matched_field": closest["field"],
-        "difference": closest["difference"],
+        "matched_total": selected_total,
+        "selected_total": selected_total,
+        "selected_total_id": selected_total_id,
+        "matched_field": closest_field,
+        "auto_match_candidates": auto_matches,
+        "difference": closest_value - selected_amount,
         **scan_note,
     }
-
 
 def _with_validation(row: dict[str, Any], issues: list[dict[str, str]]) -> dict[str, Any]:
     copied = json.loads(json.dumps(row, ensure_ascii=False))
@@ -406,6 +450,51 @@ def _parse_amount(value: Any) -> int | None:
         return None
     amount = int(cleaned)
     return -amount if negative else amount
+
+
+def _total_id(label: str, amount: int, page: int, chunk_id: str) -> str:
+    source = f"{page}|{chunk_id}|{label}|{amount}"
+    return "total_" + sha1(source.encode("utf-8")).hexdigest()[:12]
+
+
+def _selected_total_id(review_state: dict[str, Any]) -> str:
+    checksum = review_state.get("checksum", {}) if isinstance(review_state.get("checksum"), dict) else {}
+    return str(checksum.get("selected_total_id", "")).strip()
+
+
+def _find_selected_total(
+    source_totals: list[dict[str, Any]],
+    selected_total_id: str,
+) -> dict[str, Any] | None:
+    if not selected_total_id:
+        return None
+    for candidate in source_totals:
+        if str(candidate.get("id", "")) == selected_total_id:
+            return candidate
+    return None
+
+
+def _auto_match_candidates(
+    amount_total: int,
+    billing_amount_total: int,
+    source_totals: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    targets = [
+        ("amount_total", amount_total),
+        ("billing_amount_total", billing_amount_total),
+    ]
+    matches: list[dict[str, Any]] = []
+    for field, total_value in targets:
+        for candidate in source_totals:
+            if int(candidate.get("amount", 0)) == total_value:
+                matches.append(
+                    {
+                        "field": field,
+                        "candidate": candidate,
+                        "difference": 0,
+                    }
+                )
+    return matches
 
 
 def _row_key(row: dict[str, Any]) -> str:

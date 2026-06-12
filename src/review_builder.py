@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from html import escape
 from pathlib import Path
@@ -281,7 +282,7 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
     ]
     checksum_status = str(checksum.get("status", validation_output.checksum_status))
     checksum_message = str(checksum.get("message", ""))
-    checksum_class = "mapping-ok" if checksum_status == "matched" else "merge-warning"
+    checksum_class = "mapping-ok" if checksum_status == "user_confirmed_total_matched" else "merge-warning"
     row_ok = validation_output.issue_row_count == 0
     parts = [
         '<section class="validation-panel">',
@@ -305,7 +306,7 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
         "</div>",
     ]
 
-    parts.append(_checksum_details(checksum))
+    parts.append(_checksum_details(review_path, validation_output.summary_path.parent / "review_state.json", checksum))
 
     if issue_counts:
         parts.extend(
@@ -390,36 +391,57 @@ def _excel_block(review_path: Path, excel_output: ExcelExportOutput) -> str:
     )
 
 
-def _checksum_details(checksum: dict[str, Any]) -> str:
+def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, Any]) -> str:
     candidates = [
         item for item in checksum.get("source_total_candidates", []) if isinstance(item, dict)
     ]
     if not candidates:
         return ""
-    matched = checksum.get("matched_total", {}) if isinstance(checksum.get("matched_total"), dict) else {}
+    selected_total_id = str(checksum.get("selected_total_id", ""))
+    auto_match_ids = {
+        str(item.get("candidate", {}).get("id", ""))
+        for item in checksum.get("auto_match_candidates", [])
+        if isinstance(item, dict) and isinstance(item.get("candidate"), dict)
+    }
     candidate_items = []
     for candidate in candidates[:12]:
-        marker = "일치" if candidate == matched and checksum.get("difference") == 0 else "후보"
+        candidate_id = str(candidate.get("id", ""))
+        checked = " checked" if candidate_id and candidate_id == selected_total_id else ""
+        marker = "선택됨" if checked else ("자동일치" if candidate_id in auto_match_ids else "후보")
+        candidate_json = escape(json.dumps(candidate, ensure_ascii=False))
+        input_html = (
+            f'<input type="radio" name="checksum-total" value="{escape(candidate_id)}" '
+            f'data-candidate="{candidate_json}"{checked}>'
+        )
         candidate_items.append(
             '<div class="checksum-candidate">'
+            "<label>"
+            f"{input_html}"
             f"<strong>{escape(marker)}</strong>"
             f"<span>{escape(str(candidate.get('label', '원본 합계')))}: {escape(str(candidate.get('amount', '')))}</span>"
+            "</label>"
             "</div>"
         )
     return (
         '<details class="validation-details">'
-        f"<summary>원본 합계 후보 보기 ({len(candidates)}개)</summary>"
-        '<div class="checksum-candidates">'
+        f"<summary>검산 기준 원본 합계 선택 ({len(candidates)}개 후보)</summary>"
+        f'<div class="checksum-candidates" data-state-path="{escape(_relative_src(review_path, state_path))}">'
         f"{''.join(candidate_items)}"
         "</div>"
+        '<div class="checksum-actions">'
+        '<button type="button" id="save-checksum-total">검산 기준 저장</button>'
+        '<span id="checksum-message" class="note"></span>'
+        "</div>"
+        '<p class="note">저장 후 같은 명령을 다시 실행하면 선택한 원본 합계만 기준으로 검산합니다.</p>'
         "</details>"
     )
 
 
 def _checksum_label(status: str) -> str:
     labels = {
-        "matched": "검산 일치",
-        "mismatch": "검산 불일치",
+        "user_confirmed_total_matched": "검산 일치",
+        "user_confirmed_total_mismatch": "검산 불일치",
+        "no_user_total_selected": "검산 기준 미선택",
         "no_source_total": "원본 합계 없음",
         "incomplete_source_scan": "합계 확인 미완료",
     }
@@ -785,6 +807,8 @@ def _script_block() -> str:
   const saveButton = document.getElementById('save-mapping');
   const downloadButton = document.getElementById('download-mapping');
   const message = document.getElementById('mapping-message');
+  const saveChecksumButton = document.getElementById('save-checksum-total');
+  const checksumMessage = document.getElementById('checksum-message');
 
   const collectPayload = (status) => {
     const groups = [...document.querySelectorAll('.mapping-group')].map(group => {
@@ -842,6 +866,46 @@ def _script_block() -> str:
     downloadButton.addEventListener('click', () => {
       downloadPayload(collectPayload('user_confirmed_download'));
       if (message) message.textContent = '매핑 JSON을 내려받았습니다.';
+    });
+  }
+
+  if (saveChecksumButton) {
+    saveChecksumButton.addEventListener('click', async () => {
+      const container = document.querySelector('.checksum-candidates');
+      const selected = document.querySelector('input[name="checksum-total"]:checked');
+      if (!container || !selected) {
+        if (checksumMessage) checksumMessage.textContent = '먼저 원본 합계를 선택하세요.';
+        return;
+      }
+      let candidate = {};
+      try {
+        candidate = JSON.parse(selected.dataset.candidate || '{}');
+      } catch (error) {
+        candidate = {};
+      }
+      const statePath = new URL(container.dataset.statePath || 'merged/review_state.json', window.location.href).pathname;
+      const payload = {
+        schema_version: '1.0',
+        status: 'user_confirmed_review_state',
+        state_path: statePath,
+        checksum: {
+          selected_total_id: selected.value,
+          selected_total: candidate
+        }
+      };
+      if (checksumMessage) checksumMessage.textContent = '검산 기준을 PC에 저장하는 중입니다...';
+      try {
+        const response = await fetch('/api/review-state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'save failed');
+        if (checksumMessage) checksumMessage.textContent = '저장했습니다. 같은 명령을 다시 실행하면 검산에 반영됩니다.';
+      } catch (error) {
+        if (checksumMessage) checksumMessage.textContent = '저장 서버가 없거나 실패했습니다. serve_review.py로 열어 주세요.';
+      }
     });
   }
 })();
@@ -1064,9 +1128,17 @@ h3 {
 }
 .checksum-candidate {
   display: grid;
-  grid-template-columns: 52px 1fr;
+  align-items: start;
+}
+.checksum-candidate label {
+  display: grid;
+  grid-template-columns: 22px 68px 1fr;
   gap: 8px;
   align-items: start;
+  cursor: pointer;
+}
+.checksum-candidate input {
+  margin-top: 2px;
 }
 .checksum-candidate strong {
   color: var(--accent);
@@ -1074,6 +1146,23 @@ h3 {
 .checksum-candidate span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.checksum-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+.checksum-actions button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 12px;
+  font-weight: 700;
+  cursor: pointer;
 }
 .normalization-sample h3 {
   margin-bottom: 8px;

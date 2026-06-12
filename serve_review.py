@@ -16,10 +16,15 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
     server: "ReviewServer"
 
     def do_POST(self) -> None:
-        if self.path != "/api/mapping-profile":
-            self.send_error(404, "Not found")
+        if self.path == "/api/mapping-profile":
+            self._handle_mapping_profile()
             return
+        if self.path == "/api/review-state":
+            self._handle_review_state()
+            return
+        self.send_error(404, "Not found")
 
+    def _handle_mapping_profile(self) -> None:
         try:
             payload = self._read_json_body()
             saved_path = self._save_mapping_profile(payload)
@@ -38,7 +43,26 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
             }
         )
 
-    def _read_json_body(self) -> dict[str, Any]:
+    def _handle_review_state(self) -> None:
+        try:
+            payload = self._read_json_body(require_table_groups=False)
+            saved_path = self._save_review_state(payload)
+        except ValueError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+        except Exception as exc:
+            self._send_json({"ok": False, "error": f"Could not save review state: {exc}"}, status=500)
+            return
+
+        self._send_json(
+            {
+                "ok": True,
+                "path": str(saved_path),
+                "filename": saved_path.name,
+            }
+        )
+
+    def _read_json_body(self, require_table_groups: bool = True) -> dict[str, Any]:
         length_text = self.headers.get("Content-Length", "0")
         try:
             length = int(length_text)
@@ -55,10 +79,52 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
         except json.JSONDecodeError as exc:
             raise ValueError("Request body must be JSON") from exc
         if not isinstance(payload, dict):
-            raise ValueError("Profile payload must be a JSON object")
-        if not isinstance(payload.get("table_groups"), list):
+            raise ValueError("Payload must be a JSON object")
+        if require_table_groups and not isinstance(payload.get("table_groups"), list):
             raise ValueError("Profile payload must include table_groups[]")
         return payload
+
+    def _save_review_state(self, payload: dict[str, Any]) -> Path:
+        state_path = str(payload.get("state_path", "")).strip()
+        if not state_path:
+            raise ValueError("Review state payload must include state_path")
+
+        target = self._resolve_served_path(state_path)
+        if target.name != "review_state.json":
+            raise ValueError("Review state filename must be review_state.json")
+        if target.parent.name != "merged":
+            raise ValueError("Review state must be saved under a merged folder")
+
+        checksum = payload.get("checksum", {})
+        if not isinstance(checksum, dict):
+            raise ValueError("Review state payload must include checksum object")
+        selected_total_id = str(checksum.get("selected_total_id", "")).strip()
+        if not selected_total_id:
+            raise ValueError("Select a source total before saving")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        review_state = {
+            "schema_version": "1.0",
+            "status": "user_confirmed_review_state",
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "checksum": {
+                "selected_total_id": selected_total_id,
+                "selected_total": checksum.get("selected_total", {}),
+            },
+        }
+        target.write_text(json.dumps(review_state, ensure_ascii=False, indent=2), encoding="utf-8")
+        return target
+
+    def _resolve_served_path(self, request_path: str) -> Path:
+        request_path = unquote(request_path.split("?", 1)[0].split("#", 1)[0])
+        parts = [part for part in request_path.split("/") if part and part not in {".", ".."}]
+        resolved = self.server.root_dir
+        for part in parts:
+            resolved = resolved / part
+        resolved = resolved.resolve()
+        if not _is_within(resolved, self.server.root_dir):
+            raise ValueError("Invalid path")
+        return resolved
 
     def _save_mapping_profile(self, payload: dict[str, Any]) -> Path:
         profiles_dir = self.server.profiles_dir

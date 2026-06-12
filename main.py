@@ -102,6 +102,18 @@ def ensure_output_dirs(output_dir: Path, config: dict[str, Any]) -> dict[str, Pa
     return dirs
 
 
+def load_review_state(merged_dir: Path) -> dict[str, Any]:
+    state_path = merged_dir / "review_state.json"
+    if not state_path.exists():
+        return {}
+    try:
+        payload = json.loads(state_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        logging.info("Review state is not valid JSON, ignoring: %s", state_path)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def write_summary(
     output_dir: Path,
     config: dict[str, Any],
@@ -291,11 +303,13 @@ def main() -> int:
         validation_output = None
         if normalization_output:
             logging.info("Validating normalized transactions...")
+            review_state = load_review_state(output_dirs["merged"])
             validation_output = build_validation(
                 normalization_output=normalization_output,
                 vision_results=vision_results,
                 merged_dir=output_dirs["merged"],
                 expected_chunk_count=len(chunks),
+                review_state=review_state,
             )
             phase = "phase_7_validated_review"
         else:
