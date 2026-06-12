@@ -32,7 +32,7 @@ def build_review_html(
 
     html = [
         "<!doctype html>",
-        '<html lang="en">',
+        '<html lang="ko">',
         "<head>",
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -43,10 +43,10 @@ def build_review_html(
         "<main>",
         f"<h1>{escape(title)}</h1>",
         '<section class="summary">',
-        f"<div><strong>Input</strong><span>{escape(str(input_pdf))}</span></div>",
-        f"<div><strong>Pages</strong><span>{len(pages)}</span></div>",
-        f"<div><strong>Chunks</strong><span>{len(chunks)}</span></div>",
-        f"<div><strong>Vision JSON</strong><span>{vision_ok} ok / {vision_errors} errors</span></div>",
+        f"<div><strong>입력 PDF</strong><span>{escape(str(input_pdf))}</span></div>",
+        f"<div><strong>페이지</strong><span>{len(pages)}</span></div>",
+        f"<div><strong>청크</strong><span>{len(chunks)}</span></div>",
+        f"<div><strong>AI 추출</strong><span>성공 {vision_ok} / 오류 {vision_errors}</span></div>",
         "</section>",
     ]
 
@@ -61,7 +61,7 @@ def build_review_html(
                 f'<img src="{escape(page_src)}" alt="{escape(page.page_id)}">',
                 "<figcaption>",
                 f"{page.width} x {page.height}px, {page.dpi} DPI",
-                " reused" if page.reused else " rendered",
+                " 캐시 사용" if page.reused else " 새로 생성",
                 "</figcaption>",
                 "</figure>",
                 '<div class="chunks">',
@@ -76,13 +76,14 @@ def build_review_html(
                     '<article class="chunk">',
                     f"<h3>{escape(chunk.chunk_id)}</h3>",
                     f'<img src="{escape(chunk_src)}" alt="{escape(chunk.chunk_id)}">',
+                    f'<p class="chunk-action"><a class="file-link" href="{escape(chunk_src)}" target="_blank">원본 청크 크게 보기</a></p>',
                     '<dl class="meta">',
-                    "<dt>Body crop</dt>",
+                    "<dt>본문 위치</dt>",
                     f"<dd>y {chunk.source_y_start} to {chunk.source_y_end}</dd>",
-                    "<dt>Header crop</dt>",
+                    "<dt>헤더 위치</dt>",
                     f"<dd>y {chunk.header_y_start} to {chunk.header_y_end}</dd>",
-                    "<dt>Status</dt>",
-                    f"<dd>{'reused from cache' if chunk.reused else 'created'}</dd>",
+                    "<dt>상태</dt>",
+                    f"<dd>{'캐시 사용' if chunk.reused else '새로 생성'}</dd>",
                     "</dl>",
                     _vision_block(review_path, vision),
                     "</article>",
@@ -98,19 +99,19 @@ def build_review_html(
 
 def _vision_block(review_path: Path, result: VisionResult | None) -> str:
     if result is None:
-        return '<section class="vision empty"><h4>Vision Extraction</h4><p>No cached extraction yet.</p></section>'
+        return '<section class="vision empty"><h4>AI 추출 결과</h4><p>아직 추출 결과가 없습니다.</p></section>'
 
     if result.data is None:
         links = []
         if result.error_path:
-            links.append(_file_link(review_path, result.error_path, "error json"))
+            links.append(_file_link(review_path, result.error_path, "오류 JSON"))
         if result.raw_text_path:
-            links.append(_file_link(review_path, result.raw_text_path, "raw text"))
+            links.append(_file_link(review_path, result.raw_text_path, "원문 응답"))
         link_html = " ".join(links) if links else ""
         return (
             '<section class="vision error">'
-            "<h4>Vision Extraction</h4>"
-            f"<p>Status: {escape(result.status)} {link_html}</p>"
+            "<h4>AI 추출 결과</h4>"
+            f"<p>상태: {escape(_status_label(result.status))} {link_html}</p>"
             "</section>"
         )
 
@@ -122,13 +123,13 @@ def _vision_block(review_path: Path, result: VisionResult | None) -> str:
 
     parts = [
         '<section class="vision">',
-        "<h4>Vision Extraction</h4>",
+        "<h4>AI 추출 결과</h4>",
         '<div class="vision-status">',
-        f"<span>Status: {escape(result.status)}</span>",
-        f"<span>Rows: {len(rows)}</span>",
-        f"<span>Totals: {len(totals)}</span>",
-        f"<span>{'Needs review' if needs_review else 'No chunk-level warning'}</span>",
-        _file_link(review_path, result.cache_path, "json"),
+        f"<span>상태: {escape(_status_label(result.status))}</span>",
+        f"<span>행: {len(rows)}</span>",
+        f"<span>합계: {len(totals)}</span>",
+        f"<span>{'청크 확인필요' if needs_review else '청크 경고 없음'}</span>",
+        _file_link(review_path, result.cache_path, "JSON 열기"),
         "</div>",
     ]
     if data.get("review_reason"):
@@ -145,7 +146,7 @@ def _vision_block(review_path: Path, result: VisionResult | None) -> str:
 
 def _rows_table(header: list[str], rows: list[dict[str, Any]]) -> str:
     if not rows:
-        return '<p class="empty-note">No transaction rows found in this chunk.</p>'
+        return '<p class="empty-note">이 청크에서 거래 행을 찾지 못했습니다.</p>'
 
     max_cells = max([len(header)] + [len(row.get("cells", [])) for row in rows])
     labels = header + [f"col_{index}" for index in range(len(header) + 1, max_cells + 1)]
@@ -158,13 +159,14 @@ def _rows_table(header: list[str], rows: list[dict[str, Any]]) -> str:
         reason = str(row.get("review_reason") or row.get("confidence_note") or "")
         tds = "".join(f"<td>{escape(value)}</td>" for value in padded)
         local_index = escape(str(row.get("local_row_index", "")))
+        review_value = f'<span class="review-badge">확인필요</span> {escape(reason)}' if row.get("needs_review") else escape(reason)
         body_rows.append(
             f"<tr{row_class}><th>{local_index}</th>{tds}"
-            f"<td>{escape(reason)}</td></tr>"
+            f"<td>{review_value}</td></tr>"
         )
     return (
         '<div class="table-wrap"><table class="extract-table">'
-        f"<thead><tr><th>#</th>{head}<th>review</th></tr></thead>"
+        f"<thead><tr><th>#</th>{head}<th>확인</th></tr></thead>"
         f"<tbody>{''.join(body_rows)}</tbody>"
         "</table></div>"
     )
@@ -184,10 +186,19 @@ def _totals_table(totals: list[dict[str, Any]]) -> str:
         )
     return (
         '<div class="table-wrap"><table class="totals-table">'
-        "<thead><tr><th>Total label</th><th>Value</th><th>Amount</th><th>Review</th></tr></thead>"
+        "<thead><tr><th>합계 항목</th><th>표시값</th><th>숫자값</th><th>확인</th></tr></thead>"
         f"<tbody>{''.join(rows)}</tbody>"
         "</table></div>"
     )
+
+
+def _status_label(status: str) -> str:
+    labels = {
+        "ok": "완료",
+        "cached": "캐시됨",
+        "error": "오류",
+    }
+    return labels.get(status, status)
 
 
 def _file_link(review_path: Path, target: Path, label: str) -> str:
@@ -321,6 +332,9 @@ figcaption {
 .meta dd {
   margin: 0;
 }
+.chunk-action {
+  margin: 8px 0 0;
+}
 .vision {
   margin-top: 12px;
   border-top: 1px solid var(--line);
@@ -394,6 +408,18 @@ th {
 tr.needs-review td,
 tr.needs-review th {
   background: #fff5e8;
+}
+.review-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-right: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #cf6f1d;
+  color: #fff;
+  font-weight: 700;
+  white-space: nowrap;
 }
 @media (max-width: 900px) {
   main {
