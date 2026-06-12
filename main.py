@@ -42,7 +42,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "vision": {
         "provider": "gemini",
-        "model": "gemini-3.5-flash",
+        "model": "gemini-3.1-flash-lite",
         "api_key_env": "GEMINI_API_KEY",
         "prompt_path": "prompts/vision_extract_table.md",
         "request_delay_seconds": 5,
