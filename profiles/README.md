@@ -1,21 +1,10 @@
 # Profiles
 
-Saved column mapping profiles will live here.
+Confirmed column mapping profiles live here.
 
-`review.html` lets the user confirm mappings and download a
-`mapping-profile.json` file from the browser.
+Any `*.json` file in this folder is loaded automatically on future runs. Profile JSON files are user/local data and are ignored by Git.
 
-To reuse a downloaded profile on the next run, put the JSON file in this folder.
-Any `*.json` file here is loaded automatically.
-
-You can also pass a profile explicitly:
-
-```bash
-python main.py --input samples/card.pdf --output output --dry-run --mapping-profile profiles/mapping-profile.json
-```
-
-Saved profiles are hints. Raw cells are still preserved, and validation still
-marks suspicious rows for review.
+## Save From Review Page
 
 If you serve the review page with:
 
@@ -23,5 +12,16 @@ If you serve the review page with:
 python serve_review.py --host 0.0.0.0 --port 8012
 ```
 
-the `PC에 매핑 저장` button in `review.html` can save the confirmed profile here
-directly. This is useful when reviewing from iPhone over Tailscale.
+the `PC에 매핑 저장` button in `review.html` saves the confirmed profile directly into this folder. This is useful when reviewing from iPhone over Tailscale.
+
+If the review server is not running, use `매핑 JSON 내려받기` and place the downloaded `mapping-profile.json` in this folder manually.
+
+## Explicit Use
+
+You can also pass a profile explicitly:
+
+```bash
+python main.py --input samples/card.pdf --output output --dry-run --mapping-profile profiles/mapping-profile.json
+```
+
+Saved profiles are hints. Raw cells are still preserved, and validation still marks suspicious rows for review.
