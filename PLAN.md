@@ -14,6 +14,10 @@
 - Phase 2/3 extraction and review are implemented: non-dry-run calls Gemini
   Vision, saves `output/cache/*.vision.json`, and shows extracted rows/cells in
   `review.html` next to chunk images.
+- Phase 4A/4B is implemented conservatively: cached Vision rows are collected
+  into `output/merged/rows_raw.jsonl`, duplicate candidates are marked in
+  `rows_merged.jsonl`, and `review.html` shows the candidate groups without
+  deleting any rows.
 
 ---
 

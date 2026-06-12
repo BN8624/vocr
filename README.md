@@ -55,6 +55,18 @@ uses cache unless `--force-vision` is passed. `review.html` shows each chunk
 image next to extracted headers, raw cells, totals, review flags, and JSON
 cache links.
 
+## Phase 4 duplicate candidate review
+
+When cached Vision JSON exists, the pipeline also writes:
+
+- `output/merged/rows_raw.jsonl`
+- `output/merged/rows_merged.jsonl`
+- `output/merged/merge_summary.json`
+
+Phase 4 is intentionally conservative. It does not delete rows. Rows repeated
+across overlapping chunks are marked as duplicate candidates and shown in
+`review.html` for manual review.
+
 ## Sample smoke test
 
 Sample PDFs live in `견본/`. The trailing number in each filename is the

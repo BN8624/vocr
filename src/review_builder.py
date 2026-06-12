@@ -7,6 +7,7 @@ from typing import Any
 
 from src.chunk_builder import ChunkImage
 from src.page_renderer import PageImage
+from src.row_merger import RowMergeOutput
 from src.vision_extractor import VisionResult
 
 
@@ -17,6 +18,7 @@ def build_review_html(
     config: dict[str, Any],
     input_pdf: Path,
     vision_results: list[VisionResult] | None = None,
+    merge_output: RowMergeOutput | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     review_path = output_dir / "review.html"
@@ -49,6 +51,8 @@ def build_review_html(
         f"<div><strong>AI 추출</strong><span>성공 {vision_ok} / 오류 {vision_errors}</span></div>",
         "</section>",
     ]
+    if merge_output:
+        html.append(_merge_block(review_path, merge_output))
 
     for page in pages:
         page_src = _relative_src(review_path, page.image_path)
@@ -85,7 +89,7 @@ def build_review_html(
                     "<dt>상태</dt>",
                     f"<dd>{'캐시 사용' if chunk.reused else '새로 생성'}</dd>",
                     "</dl>",
-                    _vision_block(review_path, vision),
+                    _vision_block(review_path, vision, merge_output),
                     "</article>",
                 ]
             )
@@ -97,7 +101,53 @@ def build_review_html(
     return review_path
 
 
-def _vision_block(review_path: Path, result: VisionResult | None) -> str:
+def _merge_block(review_path: Path, merge_output: RowMergeOutput) -> str:
+    parts = [
+        '<section class="merge-summary">',
+        "<h2>행 병합 검토</h2>",
+        '<div class="summary merge-stats">',
+        f"<div><strong>원본 행</strong><span>{merge_output.raw_row_count}</span></div>",
+        f"<div><strong>병합 출력 행</strong><span>{merge_output.merged_row_count}</span></div>",
+        f"<div><strong>중복 후보 그룹</strong><span>{merge_output.duplicate_group_count}</span></div>",
+        f"<div><strong>중복 후보 행</strong><span>{merge_output.duplicate_row_count}</span></div>",
+        "</div>",
+        '<div class="merge-links">',
+        _file_link(review_path, merge_output.rows_raw_path, "rows_raw.jsonl"),
+        _file_link(review_path, merge_output.rows_merged_path, "rows_merged.jsonl"),
+        _file_link(review_path, merge_output.summary_path, "merge_summary.json"),
+        "</div>",
+    ]
+
+    duplicate_groups = merge_output.summary.get("duplicate_groups", [])
+    if duplicate_groups:
+        parts.append('<div class="duplicate-groups">')
+        for group in duplicate_groups:
+            rows = group.get("rows", [])
+            row_labels = ", ".join(
+                f"{row.get('chunk_id')} 행 {row.get('local_row_index')}" for row in rows
+            )
+            parts.extend(
+                [
+                    '<article class="duplicate-group">',
+                    f"<h3>{escape(str(group.get('group_id', '중복 후보')))}</h3>",
+                    f"<p>{escape(str(group.get('reason', '')))}</p>",
+                    f"<p><strong>대상:</strong> {escape(row_labels)}</p>",
+                    "</article>",
+                ]
+            )
+        parts.append("</div>")
+    else:
+        parts.append('<p class="empty-note">현재 확인된 중복 후보가 없습니다.</p>')
+
+    parts.append("</section>")
+    return "\n".join(parts)
+
+
+def _vision_block(
+    review_path: Path,
+    result: VisionResult | None,
+    merge_output: RowMergeOutput | None,
+) -> str:
     if result is None:
         return '<section class="vision empty"><h4>AI 추출 결과</h4><p>아직 추출 결과가 없습니다.</p></section>'
 
@@ -137,14 +187,20 @@ def _vision_block(review_path: Path, result: VisionResult | None) -> str:
     if data.get("notes"):
         parts.append(f'<p class="note">{escape(str(data["notes"]))}</p>')
 
-    parts.append(_rows_table(header, rows))
+    duplicate_index = merge_output.duplicate_index if merge_output else {}
+    parts.append(_rows_table(header, rows, result.chunk_id, duplicate_index))
     if totals:
         parts.append(_totals_table(totals))
     parts.append("</section>")
     return "\n".join(parts)
 
 
-def _rows_table(header: list[str], rows: list[dict[str, Any]]) -> str:
+def _rows_table(
+    header: list[str],
+    rows: list[dict[str, Any]],
+    chunk_id: str,
+    duplicate_index: dict[tuple[str, int], str],
+) -> str:
     if not rows:
         return '<p class="empty-note">이 청크에서 거래 행을 찾지 못했습니다.</p>'
 
@@ -156,11 +212,20 @@ def _rows_table(header: list[str], rows: list[dict[str, Any]]) -> str:
     for row in rows:
         cells = [str(value) for value in row.get("cells", [])]
         padded = cells + [""] * (max_cells - len(cells))
-        row_class = ' class="needs-review"' if row.get("needs_review") else ""
+        local_index = escape(str(row.get("local_row_index", "")))
+        duplicate_group = duplicate_index.get((chunk_id, _safe_int(row.get("local_row_index"), 0)), "")
+        row_needs_review = bool(row.get("needs_review") or duplicate_group)
+        row_class = ' class="needs-review"' if row_needs_review else ""
         reason = str(row.get("review_reason") or row.get("confidence_note") or "")
         tds = "".join(f"<td>{escape(value)}</td>" for value in padded)
-        local_index = escape(str(row.get("local_row_index", "")))
-        review_value = f'<span class="review-badge">확인필요</span> {escape(reason)}' if row.get("needs_review") else escape(reason)
+        review_parts = []
+        if row.get("needs_review"):
+            review_parts.append(f'<span class="review-badge">확인필요</span> {escape(reason)}')
+        elif reason:
+            review_parts.append(escape(reason))
+        if duplicate_group:
+            review_parts.append(f'<span class="review-badge duplicate">중복후보 {escape(duplicate_group)}</span>')
+        review_value = " ".join(review_parts)
         body_rows.append(
             f"<tr{row_class}><th>{local_index}</th>{tds}"
             f"<td>{review_value}</td></tr>"
@@ -175,14 +240,14 @@ def _rows_table(header: list[str], rows: list[dict[str, Any]]) -> str:
                     f"<dd>{escape(value)}</dd>"
                     "</div>"
                 )
-        if reason or row.get("needs_review"):
+        if review_value:
             field_rows.append(
                 '<div class="row-field review-field">'
                 "<dt>확인</dt>"
                 f"<dd>{review_value}</dd>"
                 "</div>"
             )
-        card_class = "row-card needs-review" if row.get("needs_review") else "row-card"
+        card_class = "row-card needs-review" if row_needs_review else "row-card"
         cards.append(
             f'<article class="{card_class}">'
             f'<h5>행 {local_index}</h5>'
@@ -243,6 +308,13 @@ def _status_label(status: str) -> str:
         "error": "오류",
     }
     return labels.get(status, status)
+
+
+def _safe_int(value: Any, fallback: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
 
 
 def _file_link(review_path: Path, target: Path, label: str) -> str:
@@ -311,6 +383,42 @@ h3 {
   min-width: 0;
   padding: 12px 14px;
   background: var(--panel);
+}
+.merge-summary {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 2px solid var(--line);
+}
+.merge-summary h2 {
+  margin-bottom: 12px;
+}
+.merge-stats {
+  margin-bottom: 10px;
+}
+.merge-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.duplicate-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.duplicate-group {
+  border: 1px solid #e2a35d;
+  border-radius: 8px;
+  background: #fff5e8;
+  padding: 10px;
+}
+.duplicate-group h3 {
+  margin-bottom: 6px;
+}
+.duplicate-group p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.45;
 }
 .summary strong,
 .summary span {
@@ -522,6 +630,9 @@ tr.needs-review th {
   font-weight: 700;
   white-space: nowrap;
 }
+.review-badge.duplicate {
+  background: #7b5cbd;
+}
 @media (max-width: 900px) {
   main {
     width: 100%;
@@ -543,6 +654,16 @@ tr.needs-review th {
   }
   .summary div {
     padding: 10px;
+  }
+  .merge-links {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+  .merge-links .file-link {
+    justify-content: center;
+  }
+  .duplicate-groups {
+    grid-template-columns: 1fr;
   }
   .chunks {
     grid-template-columns: 1fr;

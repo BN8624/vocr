@@ -9,6 +9,7 @@ from typing import Any
 from src.chunk_builder import build_chunks
 from src.page_renderer import render_pdf_pages
 from src.review_builder import build_review_html
+from src.row_merger import build_row_outputs, load_merge_output
 from src.vision_extractor import extract_chunks_with_vision, load_cached_vision_results
 
 
@@ -105,6 +106,8 @@ def write_summary(
     llm_calls: int,
     vision_ok: int,
     vision_errors: int,
+    raw_row_count: int,
+    duplicate_group_count: int,
 ) -> Path:
     summary_path = output_dir / config["output"]["summary_filename"]
     summary = {
@@ -116,6 +119,8 @@ def write_summary(
         "llm_calls": llm_calls,
         "vision_ok": vision_ok,
         "vision_errors": vision_errors,
+        "raw_row_count": raw_row_count,
+        "duplicate_group_count": duplicate_group_count,
     }
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -212,6 +217,21 @@ def main() -> int:
             llm_calls = sum(1 for result in vision_results if not result.reused)
             phase = "phase_2_3_vision_review"
 
+        merge_output = None
+        if vision_results:
+            logging.info("Collecting raw rows and duplicate candidates...")
+            merge_output = build_row_outputs(
+                vision_results=vision_results,
+                chunks=chunks,
+                input_pdf=input_pdf,
+                output_dir=output_dirs["root"],
+                merged_dir=output_dirs["merged"],
+            )
+            if args.dry_run:
+                phase = "phase_4_cached_review"
+        else:
+            merge_output = load_merge_output(output_dirs["merged"])
+
         logging.info("Building review HTML...")
         review_path = build_review_html(
             output_dir=output_dirs["root"],
@@ -220,6 +240,7 @@ def main() -> int:
             config=config["review"],
             input_pdf=input_pdf,
             vision_results=vision_results,
+            merge_output=merge_output,
         )
 
         summary_path = write_summary(
@@ -233,6 +254,8 @@ def main() -> int:
             llm_calls=llm_calls,
             vision_ok=sum(1 for result in vision_results if result.data is not None),
             vision_errors=sum(1 for result in vision_results if result.status == "error"),
+            raw_row_count=merge_output.raw_row_count if merge_output else 0,
+            duplicate_group_count=merge_output.duplicate_group_count if merge_output else 0,
         )
 
     except Exception as exc:
