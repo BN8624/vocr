@@ -222,4 +222,6 @@ output/*
 !output/.gitkeep
 samples/*
 !samples/.gitkeep
+profiles/*.json
+!profiles/README.md
 견본/*.pdf

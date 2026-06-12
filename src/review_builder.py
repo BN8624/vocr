@@ -170,6 +170,7 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
     parts.extend(
         [
             '<div class="mapping-actions">',
+            '<button type="button" id="save-mapping">PC에 매핑 저장</button>',
             '<button type="button" id="download-mapping">매핑 JSON 내려받기</button>',
             '<span id="mapping-message" class="note"></span>',
             "</div>",
@@ -754,10 +755,11 @@ def _script_block() -> str:
     return """
 <script>
 (() => {
-  const button = document.getElementById('download-mapping');
+  const saveButton = document.getElementById('save-mapping');
+  const downloadButton = document.getElementById('download-mapping');
   const message = document.getElementById('mapping-message');
-  if (!button) return;
-  button.addEventListener('click', () => {
+
+  const collectPayload = (status) => {
     const groups = [...document.querySelectorAll('.mapping-group')].map(group => {
       const columns = [...group.querySelectorAll('select')].map(select => ({
         column_id: select.dataset.columnId || '',
@@ -770,12 +772,15 @@ def _script_block() -> str:
         columns
       };
     });
-    const payload = {
+    return {
       schema_version: '1.0',
-      status: 'user_confirmed_download',
+      status,
       created_at: new Date().toISOString(),
       table_groups: groups
     };
+  };
+
+  const downloadPayload = (payload) => {
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -785,8 +790,33 @@ def _script_block() -> str:
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
-    if (message) message.textContent = '매핑 JSON을 내려받았습니다.';
-  });
+  };
+
+  if (saveButton) {
+    saveButton.addEventListener('click', async () => {
+      const payload = collectPayload('user_confirmed_save_request');
+      if (message) message.textContent = 'PC에 매핑을 저장하는 중입니다...';
+      try {
+        const response = await fetch('/api/mapping-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'save failed');
+        if (message) message.textContent = `PC profiles 폴더에 저장했습니다: ${result.filename}`;
+      } catch (error) {
+        if (message) message.textContent = '저장 서버가 없거나 실패했습니다. JSON 내려받기를 사용하세요.';
+      }
+    });
+  }
+
+  if (downloadButton) {
+    downloadButton.addEventListener('click', () => {
+      downloadPayload(collectPayload('user_confirmed_download'));
+      if (message) message.textContent = '매핑 JSON을 내려받았습니다.';
+    });
+  }
 })();
 </script>
 """.strip()

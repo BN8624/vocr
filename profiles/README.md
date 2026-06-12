@@ -16,3 +16,12 @@ python main.py --input samples/card.pdf --output output --dry-run --mapping-prof
 
 Saved profiles are hints. Raw cells are still preserved, and validation still
 marks suspicious rows for review.
+
+If you serve the review page with:
+
+```bash
+python serve_review.py --host 0.0.0.0 --port 8012
+```
+
+the `PC에 매핑 저장` button in `review.html` can save the confirmed profile here
+directly. This is useful when reviewing from iPhone over Tailscale.

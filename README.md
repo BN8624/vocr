@@ -88,6 +88,17 @@ python main.py --input samples/card.pdf --output output --dry-run --mapping-prof
 
 Profiles in `profiles/*.json` are loaded automatically on future runs.
 
+For iPhone review, use the local review server instead of a plain static server
+when you want the "PC에 매핑 저장" button to save directly into `profiles/`:
+
+```bash
+python serve_review.py --host 0.0.0.0 --port 8012
+```
+
+Then open `http://<tailscale-ip>:8012/output/review.html` or the matching
+output folder URL. If the save server is not running, the review page still lets
+you download `mapping-profile.json`.
+
 ## Phase 6 to 8 normalized data, validation, and Excel
 
 When cached Vision rows and mapping suggestions exist, the pipeline also writes:
