@@ -20,6 +20,7 @@ Image-based Korean credit card statement PDFs를 Vision LLM으로 읽고, 사람
 - 검증 결과 생성
 - 검산 기준 원본 합계 선택 및 `merged/review_state.json` 저장
 - 날짜/금액/가맹점/카드명/셀 개수 분포의 열 단위 품질 검사
+- 헤더가 조금 달라도 표 구조 signature로 저장 프로필 재사용
 - `result.xlsx` export
 
 ## 중복 행 처리
@@ -107,6 +108,8 @@ python main.py --input samples/card.pdf --output output --dry-run --mapping-prof
 ```
 
 프로필은 힌트일 뿐입니다. 원본 셀은 계속 보존되고, 검증에서 의심되는 행은 `확인필요`로 남습니다.
+
+프로필 매칭은 정확한 헤더/group id를 먼저 보고, 실패하면 표 구조 signature를 비교합니다. 열 수, 헤더 토큰, 날짜/금액/텍스트 열 위치, 샘플 값 패턴이 충분히 비슷하면 자동 적용하고, 애매하면 `review.html`에 적용 후보로만 표시합니다.
 
 ## 출력 파일
 

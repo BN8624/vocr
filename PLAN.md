@@ -33,6 +33,7 @@ Implemented:
 - Phase 7: validation into `transactions_validated.jsonl`, `validation_summary.json`, and `validation_issues.json`
 - Phase 7B: user-selected checksum total saved in `merged/review_state.json`
 - Phase 7C: column-level validation for date, amount, merchant, card label, and row cell-count distribution
+- Phase 7D: table-signature profile matching with auto/candidate thresholds
 - Phase 8: Excel export to `result.xlsx`
 
 Generated Excel sheets:
@@ -180,6 +181,7 @@ Implemented checks include:
 - exact duplicate representative rows are used for transactions; excluded duplicates remain in raw cells only
 - checksum uses the user-selected source total when `merged/review_state.json` is present
 - column-level validation catches table-wide contamination even when row totals look plausible
+- mapping profiles can match by table signature, not only exact header/group id
 
 Checksum status meanings:
 
@@ -237,8 +239,8 @@ Keep `.gitignore` enforcing those boundaries.
 
 Good next improvements:
 
-1. Improve profile matching by stronger table signatures, not only header/group id.
-2. Add a targeted total/summary-page extraction pass so totals on later pages can be captured without reprocessing every body chunk.
-3. Add more validation tests with tiny fixture JSONL files.
-4. Split `review_builder.py` into template/static assets once behavior stabilizes.
-5. Add page-level crop/chunk adjustment controls for difficult pages.
+1. Add a targeted total/summary-page extraction pass so totals on later pages can be captured without reprocessing every body chunk.
+2. Add more validation tests with tiny fixture JSONL files.
+3. Split `review_builder.py` into template/static assets once behavior stabilizes.
+4. Add page-level crop/chunk adjustment controls for difficult pages.
+5. Add a small profile management CLI for listing/removing saved profiles.

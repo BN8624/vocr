@@ -148,6 +148,21 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
                 ),
             ]
         )
+        profile_match = group.get("profile_match", {}) if isinstance(group.get("profile_match"), dict) else {}
+        if profile_match.get("status") == "candidate":
+            parts.append(
+                '<p class="merge-warning">'
+                "저장된 프로필과 비슷하지만 자동 적용하기에는 애매합니다. "
+                f"점수 {float(profile_match.get('score', 0)):.2f}, "
+                f"파일 {escape(Path(str(profile_match.get('profile_source', ''))).name)}"
+                "</p>"
+            )
+        elif profile_match.get("status") == "auto":
+            parts.append(
+                '<p class="mapping-ok">'
+                f"프로필 자동 적용 점수 {float(profile_match.get('score', 0)):.2f}"
+                "</p>"
+            )
 
         if review_columns:
             parts.append('<div class="mapping-columns mapping-review-columns">')

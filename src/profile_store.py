@@ -103,12 +103,24 @@ def _apply_saved_profiles(
 
     applied: list[str] = []
     for group in table_groups:
-        profile = _matching_profile(group, profiles)
-        if not profile:
+        match = _matching_profile(group, profiles)
+        if not match:
             continue
+        profile = match["profile"]
+        profile_group = match["profile_group"]
         profile_name = str(profile["path"])
-        selected_by_column = _profile_columns_by_id(profile["payload"], group)
+        selected_by_column = _profile_columns_by_id(profile_group, group)
         if not selected_by_column:
+            continue
+        group["profile_match"] = {
+            "status": match["status"],
+            "score": match["score"],
+            "profile_source": profile_name,
+            "reason": match["reason"],
+        }
+        if match["status"] == "candidate":
+            group["profile_candidate"] = profile_name
+            group["profile_match"]["selected_columns"] = selected_by_column
             continue
         for column in group.get("columns", []):
             if not isinstance(column, dict):
@@ -119,7 +131,7 @@ def _apply_saved_profiles(
             column["selected_field"] = selected
             column["suggested_field"] = selected
             column["confidence"] = "profile"
-            column["reason"] = f"저장된 매핑 프로필 적용: {Path(profile_name).name}"
+            column["reason"] = f"저장된 매핑 프로필 적용: {Path(profile_name).name} ({match['score']:.2f})"
             column["requires_review"] = False
             column["review_reason"] = ""
             column["profile_source"] = profile_name
@@ -163,6 +175,8 @@ def _matching_profile(
 ) -> dict[str, Any] | None:
     group_id = str(group.get("group_id", ""))
     header_key = _header_key([str(value) for value in group.get("header", [])])
+    group_signature = _table_signature(group)
+    best_match: dict[str, Any] | None = None
     for profile in profiles:
         payload = profile["payload"]
         for profile_group in payload.get("table_groups", []):
@@ -171,33 +185,62 @@ def _matching_profile(
             profile_group_id = str(profile_group.get("group_id", ""))
             profile_header_key = _header_key([str(value) for value in profile_group.get("header", [])])
             if profile_group_id in {group_id, header_key} or profile_header_key == header_key:
-                return profile
+                return {
+                    "profile": profile,
+                    "profile_group": profile_group,
+                    "score": 1.0,
+                    "status": "auto",
+                    "reason": "header_or_group_exact_match",
+                }
+            score = _signature_similarity(group_signature, _table_signature(profile_group))
+            if best_match is None or score > float(best_match["score"]):
+                best_match = {
+                    "profile": profile,
+                    "profile_group": profile_group,
+                    "score": score,
+                    "status": "auto" if score >= 0.95 else "candidate" if score >= 0.80 else "none",
+                    "reason": "table_signature_similarity",
+                }
+    if best_match and best_match["status"] in {"auto", "candidate"}:
+        return best_match
     return None
 
 
 def _profile_columns_by_id(
-    profile_payload: dict[str, Any],
+    profile_group: dict[str, Any],
     group: dict[str, Any],
 ) -> dict[str, str]:
-    group_id = str(group.get("group_id", ""))
-    header_key = _header_key([str(value) for value in group.get("header", [])])
-    for profile_group in profile_payload.get("table_groups", []):
-        if not isinstance(profile_group, dict):
-            continue
-        profile_group_id = str(profile_group.get("group_id", ""))
-        profile_header_key = _header_key([str(value) for value in profile_group.get("header", [])])
-        if profile_group_id not in {group_id, header_key} and profile_header_key != header_key:
-            continue
-        selected: dict[str, str] = {}
-        for column in profile_group.get("columns", []):
-            if not isinstance(column, dict):
-                continue
-            column_id = str(column.get("column_id", ""))
-            field = str(column.get("selected_field") or column.get("suggested_field") or "")
-            if column_id and field:
-                selected[column_id] = field
+    profile_columns = [column for column in profile_group.get("columns", []) if isinstance(column, dict)]
+    group_columns = [column for column in group.get("columns", []) if isinstance(column, dict)]
+    selected: dict[str, str] = {}
+
+    by_id: dict[str, str] = {}
+    for column in profile_columns:
+        column_id = str(column.get("column_id", ""))
+        field = str(column.get("selected_field") or column.get("suggested_field") or "")
+        if column_id and field:
+            by_id[column_id] = field
+
+    for column in group_columns:
+        column_id = str(column.get("column_id", ""))
+        if column_id in by_id:
+            selected[column_id] = by_id[column_id]
+
+    if selected:
         return selected
-    return {}
+
+    for index, column in enumerate(group_columns):
+        if index >= len(profile_columns):
+            continue
+        field = str(
+            profile_columns[index].get("selected_field")
+            or profile_columns[index].get("suggested_field")
+            or ""
+        )
+        if not field:
+            continue
+        selected[str(column.get("column_id", f"col_{index + 1}"))] = field
+    return selected
 
 
 def _group_rows_by_header(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
@@ -236,7 +279,7 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
 
     _mark_review_columns(columns)
 
-    return {
+    group = {
         "group_id": group_id,
         "row_count": len(rows),
         "header": header,
@@ -244,6 +287,8 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
         "review_column_count": sum(1 for column in columns if column["requires_review"]),
         "auto_column_count": sum(1 for column in columns if not column["requires_review"]),
     }
+    group["table_signature"] = _table_signature(group)
+    return group
 
 
 def _mark_review_columns(columns: list[dict[str, Any]]) -> None:
@@ -370,6 +415,161 @@ def _source_image_refs(rows: list[dict[str, Any]]) -> list[str]:
         if len(refs) >= 3:
             break
     return refs
+
+
+def _table_signature(group: dict[str, Any]) -> dict[str, Any]:
+    columns = [column for column in group.get("columns", []) if isinstance(column, dict)]
+    header = [str(value) for value in group.get("header", [])]
+    if not header:
+        header = [str(column.get("header", "")) for column in columns]
+    header_tokens = [_header_tokens(value) for value in header]
+    suggested_fields = [
+        str(column.get("selected_field") or column.get("suggested_field") or "")
+        for column in columns
+    ]
+    sample_patterns = [_sample_pattern(column) for column in columns]
+    return {
+        "column_count": len(columns) or len(header),
+        "header_tokens": header_tokens,
+        "suggested_fields": suggested_fields,
+        "date_like_indexes": _field_indexes(columns, {"date"}),
+        "money_like_indexes": _field_indexes(
+            columns,
+            {"amount", "billing_amount", "discount", "fee", "points", "foreign_amount"},
+        ),
+        "text_heavy_indexes": _field_indexes(columns, {"merchant", "card_label", "memo", "extra"}),
+        "sample_patterns": sample_patterns,
+    }
+
+
+def _signature_similarity(left: dict[str, Any], right: dict[str, Any]) -> float:
+    left_count = int(left.get("column_count", 0) or 0)
+    right_count = int(right.get("column_count", 0) or 0)
+    if not left_count or not right_count:
+        return 0.0
+
+    column_score = 1.0 if left_count == right_count else max(0.0, 1.0 - abs(left_count - right_count) / max(left_count, right_count))
+    header_score = _header_similarity(
+        _as_token_lists(left.get("header_tokens")),
+        _as_token_lists(right.get("header_tokens")),
+    )
+    field_score = _sequence_similarity(
+        [str(value) for value in left.get("suggested_fields", [])],
+        [str(value) for value in right.get("suggested_fields", [])],
+    )
+    date_score = _set_similarity(left.get("date_like_indexes", []), right.get("date_like_indexes", []))
+    money_score = _set_similarity(left.get("money_like_indexes", []), right.get("money_like_indexes", []))
+    text_score = _set_similarity(left.get("text_heavy_indexes", []), right.get("text_heavy_indexes", []))
+    pattern_score = _sequence_similarity(
+        [str(value) for value in left.get("sample_patterns", [])],
+        [str(value) for value in right.get("sample_patterns", [])],
+    )
+    if _patterns_missing(left.get("sample_patterns")) or _patterns_missing(right.get("sample_patterns")):
+        pattern_score = 1.0
+    score = (
+        column_score * 0.18
+        + header_score * 0.20
+        + field_score * 0.22
+        + date_score * 0.10
+        + money_score * 0.12
+        + text_score * 0.08
+        + pattern_score * 0.10
+    )
+    return round(score, 4)
+
+
+def _patterns_missing(value: Any) -> bool:
+    patterns = [str(item) for item in value or []]
+    return not patterns or all(item == "empty" for item in patterns)
+
+
+def _header_similarity(left_tokens: list[list[str]], right_tokens: list[list[str]]) -> float:
+    if not left_tokens or not right_tokens:
+        return 0.0
+    total = max(len(left_tokens), len(right_tokens))
+    matches = 0.0
+    for index in range(total):
+        left = set(left_tokens[index]) if index < len(left_tokens) else set()
+        right = set(right_tokens[index]) if index < len(right_tokens) else set()
+        if not left and not right:
+            matches += 1.0
+        elif left and right:
+            matches += len(left & right) / len(left | right)
+    return matches / total
+
+
+def _sequence_similarity(left: list[str], right: list[str]) -> float:
+    if not left or not right:
+        return 0.0
+    total = max(len(left), len(right))
+    matches = 0
+    for index in range(total):
+        if index < len(left) and index < len(right) and left[index] == right[index]:
+            matches += 1
+    return matches / total
+
+
+def _set_similarity(left: Any, right: Any) -> float:
+    left_set = {int(value) for value in left or []}
+    right_set = {int(value) for value in right or []}
+    if not left_set and not right_set:
+        return 1.0
+    if not left_set or not right_set:
+        return 0.0
+    return len(left_set & right_set) / len(left_set | right_set)
+
+
+def _field_indexes(columns: list[dict[str, Any]], fields: set[str]) -> list[int]:
+    indexes: list[int] = []
+    for index, column in enumerate(columns):
+        field = str(column.get("selected_field") or column.get("suggested_field") or "")
+        if field in fields:
+            indexes.append(index)
+    return indexes
+
+
+def _sample_pattern(column: dict[str, Any]) -> str:
+    values = [str(value) for value in column.get("sample_values", []) if str(value).strip()]
+    if not values:
+        return "empty"
+    date_rate = sum(1 for value in values if _is_date_like(value)) / len(values)
+    money_rate = sum(1 for value in values if _is_money_like(value)) / len(values)
+    text_rate = sum(1 for value in values if re.search(r"[A-Za-z가-힣]", value)) / len(values)
+    if date_rate >= 0.6:
+        return "date"
+    if money_rate >= 0.7:
+        return "money"
+    if text_rate >= 0.7:
+        return "text"
+    return "mixed"
+
+
+def _header_tokens(value: str) -> list[str]:
+    text = _norm(value)
+    aliases = {
+        "date": ("이용일", "승인일", "매출일", "일자", "date"),
+        "card": ("카드", "카드명", "카드번호", "card"),
+        "merchant": ("가맹점", "가맹점명", "이용처", "사용처", "merchant"),
+        "amount": ("이용금액", "사용금액", "승인금액", "금액", "amount"),
+        "billing": ("결제원금", "청구금액", "입금하실금액", "billing"),
+        "fee": ("수수료", "이자", "fee"),
+        "benefit": ("혜택", "할인", "포인트"),
+        "installment": ("할부", "회차", "개월"),
+    }
+    tokens = [key for key, words in aliases.items() if any(_norm(word) in text for word in words)]
+    if tokens:
+        return tokens
+    return [text] if text else []
+
+
+def _as_token_lists(value: Any) -> list[list[str]]:
+    token_lists: list[list[str]] = []
+    for item in value or []:
+        if isinstance(item, list):
+            token_lists.append([str(token) for token in item])
+        else:
+            token_lists.append([str(item)])
+    return token_lists
 
 
 def _header_key(header: list[str]) -> str:
