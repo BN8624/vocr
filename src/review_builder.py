@@ -391,6 +391,7 @@ def _checksum_label(status: str) -> str:
         "matched": "검산 일치",
         "mismatch": "검산 불일치",
         "no_source_total": "원본 합계 없음",
+        "incomplete_source_scan": "합계 확인 미완료",
     }
     return labels.get(status, status)
 

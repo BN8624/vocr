@@ -28,6 +28,7 @@ def build_validation(
     normalization_output: NormalizationOutput | None,
     vision_results: list[VisionResult] | None,
     merged_dir: Path,
+    expected_chunk_count: int | None = None,
 ) -> ValidationOutput | None:
     if not normalization_output or not normalization_output.transactions_path.exists():
         return None
@@ -40,6 +41,8 @@ def build_validation(
         amount_total=normalization_output.amount_total,
         billing_amount_total=normalization_output.billing_amount_total,
         source_totals=source_totals,
+        processed_chunk_count=len(vision_results or []),
+        expected_chunk_count=expected_chunk_count,
     )
 
     validated_rows = [_with_validation(row, row_issues.get(_row_key(row), [])) for row in rows]
@@ -220,8 +223,32 @@ def _checksum_summary(
     amount_total: int,
     billing_amount_total: int,
     source_totals: list[dict[str, Any]],
+    processed_chunk_count: int,
+    expected_chunk_count: int | None,
 ) -> dict[str, Any]:
+    expected = expected_chunk_count or processed_chunk_count
+    is_complete_scan = expected <= 0 or processed_chunk_count >= expected
+    scan_note = {
+        "processed_chunk_count": processed_chunk_count,
+        "expected_chunk_count": expected,
+        "is_complete_scan": is_complete_scan,
+    }
+
     if not source_totals:
+        if not is_complete_scan:
+            return {
+                "status": "incomplete_source_scan",
+                "message": (
+                    f"전체 {expected}개 청크 중 {processed_chunk_count}개만 Vision 결과가 있어 "
+                    "뒤 페이지의 합계를 아직 못 봤을 수 있습니다."
+                ),
+                "amount_total": amount_total,
+                "billing_amount_total": billing_amount_total,
+                "source_total_candidates": [],
+                "matched_total": None,
+                "difference": None,
+                **scan_note,
+            }
         return {
             "status": "no_source_total",
             "message": "Vision 결과에서 비교할 원본 합계를 찾지 못했습니다.",
@@ -230,6 +257,7 @@ def _checksum_summary(
             "source_total_candidates": [],
             "matched_total": None,
             "difference": None,
+            **scan_note,
         }
 
     targets = [
@@ -248,7 +276,23 @@ def _checksum_summary(
                     "matched_total": candidate,
                     "matched_field": total_name,
                     "difference": 0,
+                    **scan_note,
                 }
+
+    if not is_complete_scan:
+        return {
+            "status": "incomplete_source_scan",
+            "message": (
+                f"원본 합계 후보는 찾았지만 전체 {expected}개 청크 중 {processed_chunk_count}개만 "
+                "Vision 결과가 있어 최종 검산으로 확정하지 않았습니다."
+            ),
+            "amount_total": amount_total,
+            "billing_amount_total": billing_amount_total,
+            "source_total_candidates": source_totals,
+            "matched_total": None,
+            "difference": None,
+            **scan_note,
+        }
 
     closest = min(
         (
@@ -272,6 +316,7 @@ def _checksum_summary(
         "matched_total": closest["candidate"],
         "matched_field": closest["field"],
         "difference": closest["difference"],
+        **scan_note,
     }
 
 

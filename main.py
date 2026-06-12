@@ -283,6 +283,7 @@ def main() -> int:
                 normalization_output=normalization_output,
                 vision_results=vision_results,
                 merged_dir=output_dirs["merged"],
+                expected_chunk_count=len(chunks),
             )
             phase = "phase_7_validated_review"
         else:
