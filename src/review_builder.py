@@ -10,6 +10,7 @@ from src.normalizer import NormalizationOutput
 from src.page_renderer import PageImage
 from src.profile_store import MAPPING_OPTIONS, MappingOutput
 from src.row_merger import RowMergeOutput
+from src.validator import ValidationOutput
 from src.vision_extractor import VisionResult
 
 
@@ -23,6 +24,7 @@ def build_review_html(
     merge_output: RowMergeOutput | None = None,
     mapping_output: MappingOutput | None = None,
     normalization_output: NormalizationOutput | None = None,
+    validation_output: ValidationOutput | None = None,
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     review_path = output_dir / "review.html"
@@ -61,6 +63,8 @@ def build_review_html(
         html.append(_mapping_block(review_path, mapping_output))
     if normalization_output:
         html.append(_normalization_block(review_path, normalization_output))
+    if validation_output:
+        html.append(_validation_block(review_path, validation_output))
 
     for page in pages:
         page_src = _relative_src(review_path, page.image_path)
@@ -254,6 +258,141 @@ def _normalization_block(review_path: Path, normalization_output: NormalizationO
 
     parts.append("</section>")
     return "\n".join(parts)
+
+
+def _validation_block(review_path: Path, validation_output: ValidationOutput) -> str:
+    summary = validation_output.summary
+    checksum = summary.get("checksum", {}) if isinstance(summary.get("checksum"), dict) else {}
+    issue_counts = [
+        item for item in summary.get("issue_counts", []) if isinstance(item, dict)
+    ]
+    review_samples = [
+        sample for sample in summary.get("review_samples", []) if isinstance(sample, dict)
+    ]
+    checksum_status = str(checksum.get("status", validation_output.checksum_status))
+    checksum_message = str(checksum.get("message", ""))
+    checksum_class = "mapping-ok" if checksum_status == "matched" else "merge-warning"
+    row_ok = validation_output.issue_row_count == 0
+    parts = [
+        '<section class="validation-panel">',
+        "<h2>검증 결과</h2>",
+        f'<p class="{checksum_class}">{escape(_checksum_label(checksum_status))}: {escape(checksum_message)}</p>',
+        (
+            '<p class="mapping-ok">행 단위 이상 징후는 없습니다.</p>'
+            if row_ok
+            else '<p class="merge-warning">행 단위 확인필요 항목이 있습니다. 원본셀과 청크 링크로 바로 확인할 수 있습니다.</p>'
+        ),
+        '<div class="summary validation-stats">',
+        f"<div><strong>거래</strong><span>{validation_output.transaction_count}</span></div>",
+        f"<div><strong>문제 행</strong><span>{validation_output.issue_row_count}</span></div>",
+        f"<div><strong>문제 수</strong><span>{validation_output.row_issue_count}</span></div>",
+        f"<div><strong>검산</strong><span>{escape(_checksum_label(checksum_status))}</span></div>",
+        "</div>",
+        '<div class="merge-links">',
+        _file_link(review_path, validation_output.validated_transactions_path, "transactions_validated.jsonl"),
+        _file_link(review_path, validation_output.issues_path, "validation_issues.json"),
+        _file_link(review_path, validation_output.summary_path, "validation_summary.json"),
+        "</div>",
+    ]
+
+    parts.append(_checksum_details(checksum))
+
+    if issue_counts:
+        parts.extend(
+            [
+                '<details class="validation-details">',
+                f"<summary>행 문제 유형 보기 ({len(issue_counts)}종류)</summary>",
+                '<div class="reason-list">',
+            ]
+        )
+        for item in issue_counts:
+            parts.append(
+                '<div class="reason-item">'
+                f"<strong>{escape(str(item.get('count', 0)))}</strong>"
+                f"<span>{escape(str(item.get('label') or item.get('code') or ''))}</span>"
+                "</div>"
+            )
+        parts.extend(["</div>", "</details>"])
+
+    if review_samples:
+        parts.extend(
+            [
+                '<details class="validation-details">',
+                f"<summary>확인필요 행 샘플 보기 ({len(review_samples)}개)</summary>",
+                '<div class="normalization-samples">',
+            ]
+        )
+        for sample in review_samples:
+            source = sample.get("source", {}) if isinstance(sample.get("source"), dict) else {}
+            transaction = (
+                sample.get("transaction", {}) if isinstance(sample.get("transaction"), dict) else {}
+            )
+            issues = [issue for issue in sample.get("issues", []) if isinstance(issue, dict)]
+            issue_text = "; ".join(str(issue.get("message", "")) for issue in issues)
+            cells = [str(value) for value in sample.get("cells", [])]
+            image_ref = str(sample.get("image_ref", "")).strip()
+            image_link = ""
+            if image_ref:
+                image_link = _file_link(review_path, review_path.parent / image_ref, "원본 청크 보기")
+            parts.extend(
+                [
+                    '<article class="normalization-sample">',
+                    (
+                        f"<h3>p{escape(str(source.get('page', '')))} "
+                        f"{escape(str(source.get('chunk_id', '')))} "
+                        f"#{escape(str(source.get('local_row_index', '')))}</h3>"
+                    ),
+                    '<dl class="sample-transaction">',
+                    f"<div><dt>날짜</dt><dd>{escape(str(transaction.get('date', '')))}</dd></div>",
+                    f"<div><dt>카드</dt><dd>{escape(str(transaction.get('card_label', '')))}</dd></div>",
+                    f"<div><dt>가맹점</dt><dd>{escape(str(transaction.get('merchant', '')))}</dd></div>",
+                    f"<div><dt>금액</dt><dd>{escape(str(transaction.get('amount', '')))}</dd></div>",
+                    "</dl>",
+                    f'<p class="warning">{escape(issue_text)}</p>',
+                    f'<p class="note">원본셀: {escape(" | ".join(cells))}</p>',
+                    image_link,
+                    "</article>",
+                ]
+            )
+        parts.extend(["</div>", "</details>"])
+
+    parts.append("</section>")
+    return "\n".join(parts)
+
+
+def _checksum_details(checksum: dict[str, Any]) -> str:
+    candidates = [
+        item for item in checksum.get("source_total_candidates", []) if isinstance(item, dict)
+    ]
+    if not candidates:
+        return ""
+    matched = checksum.get("matched_total", {}) if isinstance(checksum.get("matched_total"), dict) else {}
+    candidate_items = []
+    for candidate in candidates[:12]:
+        marker = "일치" if candidate == matched and checksum.get("difference") == 0 else "후보"
+        candidate_items.append(
+            '<div class="checksum-candidate">'
+            f"<strong>{escape(marker)}</strong>"
+            f"<span>{escape(str(candidate.get('label', '원본 합계')))}: {escape(str(candidate.get('amount', '')))}</span>"
+            "</div>"
+        )
+    return (
+        '<details class="validation-details">'
+        f"<summary>원본 합계 후보 보기 ({len(candidates)}개)</summary>"
+        '<div class="checksum-candidates">'
+        f"{''.join(candidate_items)}"
+        "</div>"
+        "</details>"
+    )
+
+
+def _checksum_label(status: str) -> str:
+    labels = {
+        "matched": "검산 일치",
+        "mismatch": "검산 불일치",
+        "no_source_total": "원본 합계 없음",
+    }
+    return labels.get(status, status)
 
 
 def _mapping_column_card(
@@ -750,10 +889,21 @@ h3 {
   padding-top: 18px;
   border-top: 2px solid var(--line);
 }
+.validation-panel {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 2px solid var(--line);
+}
 .normalization-stats {
   margin-bottom: 10px;
 }
+.validation-stats {
+  margin-bottom: 10px;
+}
 .normalization-details {
+  margin-top: 10px;
+}
+.validation-details {
   margin-top: 10px;
 }
 .normalization-details summary {
@@ -766,17 +916,32 @@ h3 {
   color: var(--accent);
   font-weight: 700;
 }
+.validation-details summary {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfbf9;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 700;
+}
 .normalization-details[open] summary {
   margin-bottom: 10px;
 }
+.validation-details[open] summary {
+  margin-bottom: 10px;
+}
 .reason-list,
-.normalization-samples {
+.normalization-samples,
+.checksum-candidates {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   gap: 10px;
 }
 .reason-item,
-.normalization-sample {
+.normalization-sample,
+.checksum-candidate {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel);
@@ -801,6 +966,19 @@ h3 {
   min-width: 0;
   overflow-wrap: anywhere;
   line-height: 1.4;
+}
+.checksum-candidate {
+  display: grid;
+  grid-template-columns: 52px 1fr;
+  gap: 8px;
+  align-items: start;
+}
+.checksum-candidate strong {
+  color: var(--accent);
+}
+.checksum-candidate span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .normalization-sample h3 {
   margin-bottom: 8px;

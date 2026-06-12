@@ -12,6 +12,7 @@ from src.page_renderer import render_pdf_pages
 from src.profile_store import build_mapping_suggestions, load_mapping_suggestions
 from src.review_builder import build_review_html
 from src.row_merger import build_row_outputs, load_merge_output
+from src.validator import build_validation, load_validation_output
 from src.vision_extractor import extract_chunks_with_vision, load_cached_vision_results
 
 
@@ -116,6 +117,8 @@ def write_summary(
     transaction_count: int,
     normalization_review_count: int,
     normalized_amount_total: int,
+    validation_issue_row_count: int,
+    checksum_status: str,
 ) -> Path:
     summary_path = output_dir / config["output"]["summary_filename"]
     summary = {
@@ -133,6 +136,8 @@ def write_summary(
         "transaction_count": transaction_count,
         "normalization_review_count": normalization_review_count,
         "normalized_amount_total": normalized_amount_total,
+        "validation_issue_row_count": validation_issue_row_count,
+        "checksum_status": checksum_status,
     }
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -271,6 +276,18 @@ def main() -> int:
         else:
             normalization_output = load_normalization_output(output_dirs["merged"])
 
+        validation_output = None
+        if normalization_output:
+            logging.info("Validating normalized transactions...")
+            validation_output = build_validation(
+                normalization_output=normalization_output,
+                vision_results=vision_results,
+                merged_dir=output_dirs["merged"],
+            )
+            phase = "phase_7_validated_review"
+        else:
+            validation_output = load_validation_output(output_dirs["merged"])
+
         logging.info("Building review HTML...")
         review_path = build_review_html(
             output_dir=output_dirs["root"],
@@ -282,6 +299,7 @@ def main() -> int:
             merge_output=merge_output,
             mapping_output=mapping_output,
             normalization_output=normalization_output,
+            validation_output=validation_output,
         )
 
         summary_path = write_summary(
@@ -301,6 +319,8 @@ def main() -> int:
             transaction_count=normalization_output.transaction_count if normalization_output else 0,
             normalization_review_count=normalization_output.review_count if normalization_output else 0,
             normalized_amount_total=normalization_output.amount_total if normalization_output else 0,
+            validation_issue_row_count=validation_output.issue_row_count if validation_output else 0,
+            checksum_status=validation_output.checksum_status if validation_output else "not_run",
         )
 
     except Exception as exc:
