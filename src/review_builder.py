@@ -117,40 +117,38 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
 
     for group in mapping_output.table_groups:
         group_id = str(group.get("group_id", "unknown"))
+        columns = [column for column in group.get("columns", []) if isinstance(column, dict)]
+        review_columns = [column for column in columns if column.get("requires_review")]
+        auto_columns = [column for column in columns if not column.get("requires_review")]
         parts.extend(
             [
                 f'<article class="mapping-group" data-group-id="{escape(group_id)}">',
                 f"<h3>테이블 그룹 {escape(group_id)}</h3>",
-                f'<p class="note">행 {int(group.get("row_count", 0))}개 기준 추천입니다.</p>',
+                (
+                    f'<p class="note">행 {int(group.get("row_count", 0))}개 기준입니다. '
+                    f'확인 필요 {len(review_columns)}개, 자동 추천 {len(auto_columns)}개.</p>'
+                ),
+            ]
+        )
+
+        if review_columns:
+            parts.append('<div class="mapping-columns mapping-review-columns">')
+            for column in review_columns:
+                parts.append(_mapping_column_card(column, mapping_output.option_labels, is_review=True))
+            parts.append("</div>")
+        else:
+            parts.append('<p class="mapping-ok">확인할 애매한 열이 없습니다. 자동 추천값을 그대로 사용할 수 있습니다.</p>')
+
+        parts.extend(
+            [
+                '<details class="mapping-auto-details">',
+                f"<summary>자동 추천된 열 보기 ({len(auto_columns)}개)</summary>",
                 '<div class="mapping-columns">',
             ]
         )
-        for column in group.get("columns", []):
-            suggested = str(column.get("suggested_field", "extra"))
-            option_html = _mapping_options_html(mapping_output.option_labels, suggested)
-            samples = [str(value) for value in column.get("sample_values", [])]
-            sample_html = "".join(f"<li>{escape(value)}</li>" for value in samples) or "<li>샘플 없음</li>"
-            parts.extend(
-                [
-                    '<article class="mapping-column">',
-                    f'<h4>{escape(str(column.get("column_id", "")))} · {escape(str(column.get("header", "")))}</h4>',
-                    '<label>',
-                    "<span>필드 선택</span>",
-                    (
-                        f'<select data-column-id="{escape(str(column.get("column_id", "")))}" '
-                        f'data-header="{escape(str(column.get("header", "")))}" '
-                        f'data-suggested="{escape(suggested)}">'
-                        f"{option_html}"
-                        "</select>"
-                    ),
-                    "</label>",
-                    f'<p class="note">추천: {escape(mapping_output.option_labels.get(suggested, suggested))} · {escape(str(column.get("confidence", "")))}</p>',
-                    f'<p class="note">{escape(str(column.get("reason", "")))}</p>',
-                    f"<ul>{sample_html}</ul>",
-                    "</article>",
-                ]
-            )
-        parts.extend(["</div>", "</article>"])
+        for column in auto_columns:
+            parts.append(_mapping_column_card(column, mapping_output.option_labels, is_review=False))
+        parts.extend(["</div>", "</details>", "</article>"])
 
     parts.extend(
         [
@@ -162,6 +160,42 @@ def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
         ]
     )
     return "\n".join(parts)
+
+
+def _mapping_column_card(
+    column: dict[str, Any],
+    option_labels: dict[str, str],
+    is_review: bool,
+) -> str:
+    suggested = str(column.get("suggested_field", "extra"))
+    option_html = _mapping_options_html(option_labels, suggested)
+    samples = [str(value) for value in column.get("sample_values", [])]
+    sample_html = "".join(f"<li>{escape(value)}</li>" for value in samples) or "<li>샘플 없음</li>"
+    review_reason = str(column.get("review_reason", ""))
+    card_class = "mapping-column needs-review" if is_review else "mapping-column auto"
+    badge = '<span class="review-badge">확인필요</span>' if is_review else '<span class="auto-badge">자동추천</span>'
+    review_text = f'<p class="warning">{escape(review_reason)}</p>' if review_reason else ""
+    return "\n".join(
+        [
+            f'<article class="{card_class}">',
+            f'<h4>{badge} {escape(str(column.get("column_id", "")))} · {escape(str(column.get("header", "")))}</h4>',
+            '<label>',
+            "<span>필드 선택</span>",
+            (
+                f'<select data-column-id="{escape(str(column.get("column_id", "")))}" '
+                f'data-header="{escape(str(column.get("header", "")))}" '
+                f'data-suggested="{escape(suggested)}">'
+                f"{option_html}"
+                "</select>"
+            ),
+            "</label>",
+            f'<p class="note">추천: {escape(option_labels.get(suggested, suggested))} · {escape(str(column.get("confidence", "")))}</p>',
+            f'<p class="note">{escape(str(column.get("reason", "")))}</p>',
+            review_text,
+            f"<ul>{sample_html}</ul>",
+            "</article>",
+        ]
+    )
 
 
 def _mapping_options_html(option_labels: dict[str, str], selected: str) -> str:
@@ -556,12 +590,44 @@ h3 {
   background: var(--panel);
   padding: 10px;
 }
+.mapping-column.needs-review {
+  border-color: #e2a35d;
+  background: #fffaf2;
+}
+.mapping-column.auto {
+  background: #fbfbf9;
+}
 .mapping-column h4 {
   margin: 0 0 10px;
   font-size: 14px;
   line-height: 1.35;
   letter-spacing: 0;
   overflow-wrap: anywhere;
+}
+.mapping-ok {
+  margin: 10px 0;
+  border: 1px solid #bdd8cb;
+  border-radius: 8px;
+  background: #eef8f3;
+  color: #235c4d;
+  padding: 10px;
+  font-size: 14px;
+}
+.mapping-auto-details {
+  margin-top: 12px;
+}
+.mapping-auto-details summary {
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfbf9;
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--accent);
+  font-weight: 700;
+}
+.mapping-auto-details[open] summary {
+  margin-bottom: 10px;
 }
 .mapping-column label span {
   display: block;
@@ -814,6 +880,19 @@ tr.needs-review th {
 }
 .review-badge.duplicate {
   background: #7b5cbd;
+}
+.auto-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-right: 6px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: #dfe9e4;
+  color: #31584e;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 @media (max-width: 900px) {
   main {

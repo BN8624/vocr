@@ -73,10 +73,11 @@ When merged rows exist, the pipeline writes:
 
 - `output/merged/mapping_suggestions.json`
 
-`review.html` shows a mobile-friendly column mapping panel. The user can adjust
-each column with a select menu and download `mapping-profile.json` from the
-browser. This keeps the mapping review usable on iPhone before automatic local
-profile saving is added.
+`review.html` shows a mobile-friendly column mapping panel. Confident automatic
+matches are collapsed, and only ambiguous or conflicting columns are shown first.
+The user can adjust those columns with select menus and download
+`mapping-profile.json` from the browser. This keeps the mapping review usable on
+iPhone before automatic local profile saving is added.
 
 ## Sample smoke test
 

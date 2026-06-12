@@ -30,6 +30,9 @@ MAPPING_OPTIONS = [
     "ignore",
 ]
 
+CORE_FIELDS = {"date", "card_label", "merchant", "amount", "billing_amount"}
+REQUIRED_FIELDS = {"date", "merchant", "amount"}
+
 
 @dataclass(frozen=True)
 class MappingOutput:
@@ -110,15 +113,61 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
                 "suggested_field": suggestion["field"],
                 "confidence": suggestion["confidence"],
                 "reason": suggestion["reason"],
+                "requires_review": False,
+                "review_reason": "",
             }
         )
+
+    _mark_review_columns(columns)
 
     return {
         "group_id": group_id,
         "row_count": len(rows),
         "header": header,
         "columns": columns,
+        "review_column_count": sum(1 for column in columns if column["requires_review"]),
+        "auto_column_count": sum(1 for column in columns if not column["requires_review"]),
     }
+
+
+def _mark_review_columns(columns: list[dict[str, Any]]) -> None:
+    field_counts: dict[str, int] = defaultdict(int)
+    for column in columns:
+        field = str(column["suggested_field"])
+        if field not in {"extra", "ignore"}:
+            field_counts[field] += 1
+
+    suggested_fields = {str(column["suggested_field"]) for column in columns}
+    missing_required = REQUIRED_FIELDS - suggested_fields
+
+    for column in columns:
+        field = str(column["suggested_field"])
+        confidence = str(column["confidence"])
+        reasons: list[str] = []
+
+        if field in CORE_FIELDS and confidence != "high":
+            reasons.append("핵심 열인데 자동 판단 신뢰도가 높지 않습니다.")
+        if field_counts.get(field, 0) > 1 and field in CORE_FIELDS:
+            reasons.append(f"{field} 후보가 여러 개입니다.")
+        if field == "extra" and confidence == "low" and _has_many_values(column):
+            reasons.append("추가필드 후보입니다. 필요한 열인지 한 번만 확인하세요.")
+
+        column["requires_review"] = bool(reasons)
+        column["review_reason"] = " ".join(reasons)
+
+    if missing_required:
+        for column in columns:
+            if column["requires_review"]:
+                continue
+            if str(column["suggested_field"]) in {"extra", "ignore"} and _has_many_values(column):
+                column["requires_review"] = True
+                missing = ", ".join(sorted(missing_required))
+                column["review_reason"] = f"필수 필드({missing}) 후보가 부족해서 확인이 필요합니다."
+                break
+
+
+def _has_many_values(column: dict[str, Any]) -> bool:
+    return len([value for value in column.get("sample_values", []) if str(value).strip()]) >= 2
 
 
 def _suggest_field(header: str, values: list[str]) -> dict[str, str]:

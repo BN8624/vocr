@@ -19,8 +19,8 @@
   `rows_merged.jsonl`, and `review.html` shows the candidate groups without
   deleting any rows.
 - Phase 5 initial mapping review is implemented: `mapping_suggestions.json` is
-  generated from merged rows, and `review.html` lets the user confirm fields and
-  download a mapping profile JSON.
+  generated from merged rows, and `review.html` asks the user to confirm only
+  ambiguous or conflicting columns while collapsing confident automatic matches.
 
 ---
 
