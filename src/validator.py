@@ -1024,16 +1024,19 @@ def _is_samsung_transaction_row(row: dict[str, Any]) -> bool:
 
 
 def _samsung_usage_amount(row: dict[str, Any]) -> int | None:
-    extra_fields = row.get("extra_fields", {}) if isinstance(row.get("extra_fields"), dict) else {}
-    extra_amount = _parse_amount(extra_fields.get("이용금액"))
-    if extra_amount is not None:
-        return extra_amount
-
     transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
     billed_amount = transaction.get("amount")
     if not isinstance(billed_amount, int):
         return None
     cells = [str(value) for value in row.get("raw", {}).get("cells", [])]
+    if _is_samsung_installment_row(cells):
+        return billed_amount
+
+    extra_fields = row.get("extra_fields", {}) if isinstance(row.get("extra_fields"), dict) else {}
+    extra_amount = _parse_amount(extra_fields.get("이용금액"))
+    if extra_amount is not None:
+        return extra_amount
+
     split_card_shape = len(cells) > 2 and bool(re.fullmatch(r"\d{3,4}", cells[2].strip()))
     pairs = ((4, 6), (4, 7), (4, 5)) if split_card_shape else ((3, 6), (3, 7), (3, 5), (3, 4))
     for usage_index, billed_index in pairs:
@@ -1045,6 +1048,10 @@ def _samsung_usage_amount(row: dict[str, Any]) -> int | None:
         if usage_amount is not None:
             return usage_amount
     return None
+
+
+def _is_samsung_installment_row(cells: list[str]) -> bool:
+    return any(bool(re.fullmatch(r"\d+\s*/\s*\d+", cell.strip())) for cell in cells)
 
 
 def _aggregate_total_id(label: str, amount: int, candidates: list[dict[str, Any]]) -> str:

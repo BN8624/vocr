@@ -109,7 +109,7 @@ def extract_chunks_with_vision(
                     page_number=chunk.page_number,
                     cache_path=cache_path,
                     status="cached",
-                    data=_read_json(cache_path),
+                    data=_with_required_defaults(_read_json(cache_path), chunk),
                     reused=True,
                 )
             )
@@ -308,8 +308,8 @@ def _parse_json_text(text: str) -> dict[str, Any]:
 
 def _with_required_defaults(data: dict[str, Any], chunk: ChunkImage) -> dict[str, Any]:
     data.setdefault("schema_version", "1.0")
-    data["page"] = int(data.get("page") or chunk.page_number)
-    data["chunk_id"] = str(data.get("chunk_id") or chunk.chunk_id)
+    data["page"] = int(chunk.page_number)
+    data["chunk_id"] = str(chunk.chunk_id)
     data.setdefault("header", [])
     data.setdefault("rows", [])
     data.setdefault("totals", [])

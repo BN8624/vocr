@@ -360,6 +360,8 @@ def _repair_hyundai_shifted_rows(
     header: list[str],
     cells: list[str],
 ) -> bool:
+    if _repair_hyundai_combined_date_card_header(transaction, extra_fields, header, cells):
+        return True
     if _repair_hyundai_owner_card_row(transaction, extra_fields, cells):
         return True
     if _repair_hyundai_amount_shift_row(transaction, header, cells):
@@ -367,6 +369,37 @@ def _repair_hyundai_shifted_rows(
     if _repair_hyundai_direct_amount_row(transaction, cells):
         return True
     return _repair_hyundai_small_amount_with_billing(transaction)
+
+
+def _repair_hyundai_combined_date_card_header(
+    transaction: dict[str, Any],
+    extra_fields: dict[str, Any],
+    header: list[str],
+    cells: list[str],
+) -> bool:
+    if len(cells) < 8 or not header:
+        return False
+    first_header = re.sub(r"\s+", "", str(header[0]))
+    if "이용일이용카드" not in first_header:
+        return False
+    if not _looks_like_date_token(cells[0]):
+        return False
+    amount = _parse_amount(cells[3])
+    billing_amount = _parse_amount(cells[7])
+    if amount is None:
+        return False
+    transaction["date"] = _normalize_date(cells[0])
+    transaction["card_label"] = cells[1].strip()
+    transaction["merchant"] = cells[2].strip()
+    transaction["amount"] = amount
+    if billing_amount is not None:
+        transaction["billing_amount"] = billing_amount
+    transaction["transaction_type"] = ""
+    if len(cells) > 5 and cells[5].strip():
+        extra_fields["discount"] = cells[5].strip()
+    if len(cells) > 6 and cells[6].strip():
+        extra_fields["points"] = cells[6].strip()
+    return True
 
 
 def _repair_hyundai_owner_card_row(

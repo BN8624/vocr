@@ -78,15 +78,16 @@ def main() -> int:
         _assert_non_adjacent_duplicates_need_review(root / "non_adjacent")
         _assert_normalized_variant_duplicates_excluded(root / "normalized_variant")
         _assert_installment_variant_duplicates_excluded(root / "installment_variant")
+        _assert_hyundai_combined_header_row_repaired(root / "hyundai_combined_header")
 
     print("duplicate representative test passed")
     return 0
 
 
-def _chunk(chunk_id: str, image_path: Path, chunk_index: int) -> ChunkImage:
+def _chunk(chunk_id: str, image_path: Path, chunk_index: int, page_number: int = 1) -> ChunkImage:
     return ChunkImage(
         chunk_id=chunk_id,
-        page_number=1,
+        page_number=page_number,
         chunk_index=chunk_index,
         image_path=image_path,
         width=100,
@@ -277,10 +278,75 @@ def _assert_installment_variant_duplicates_excluded(root: Path) -> None:
     assert normalization_output.summary["normalized_duplicate_excluded_count"] == 1
 
 
-def _vision_with_header(chunk_id: str, header: list[str], cells_list: list[list[str]]) -> VisionResult:
+def _assert_hyundai_combined_header_row_repaired(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    header = [
+        "이용일 이용카드",
+        "이용가맹점",
+        "이용금액",
+        "할부/회차",
+        "적립/할인율(%)",
+        "예상적립/할인",
+        "결제원금",
+        "결제 후 잔액",
+        "수수료(이자)",
+    ]
+    cells = ["04.28", "본인 the Purple(KAL)", "한국정보통신 - 파이브가이즈", "26,300", "", "0.1", "26", "26,300", "", ""]
+    merge_output = build_row_outputs(
+        vision_results=[_vision_with_header("page_007_chunk_03", header, [cells], page_number=7)],
+        chunks=[_chunk("page_007_chunk_03", root / "chunk_03.png", 3, page_number=7)],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[
+            _mapping_group_for(
+                header,
+                ["date", "card_label", "merchant", "amount", "extra", "discount", "points", "billing_amount", "extra", "extra"],
+            )
+        ],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping_output,
+        merged_dir=merged_dir,
+    )
+    assert normalization_output is not None
+    assert normalization_output.transaction_count == 1
+    assert normalization_output.amount_total == 26300
+    rows = _read_jsonl(normalization_output.transactions_path)
+    assert rows[0]["source"]["page"] == 7
+    assert rows[0]["transaction"]["card_label"] == "본인 the Purple(KAL)"
+    assert rows[0]["transaction"]["merchant"] == "한국정보통신 - 파이브가이즈"
+
+
+def _vision_with_header(
+    chunk_id: str,
+    header: list[str],
+    cells_list: list[list[str]],
+    page_number: int = 1,
+) -> VisionResult:
     result = _vision(chunk_id, cells_list)
+    result = VisionResult(
+        chunk_id=result.chunk_id,
+        page_number=page_number,
+        cache_path=result.cache_path,
+        status=result.status,
+        data=result.data,
+        error_path=result.error_path,
+        raw_text_path=result.raw_text_path,
+        reused=result.reused,
+    )
     assert result.data is not None
     result.data["header"] = header
+    result.data["page"] = page_number
     return result
 
 

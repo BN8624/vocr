@@ -5,7 +5,7 @@ render:
 chunking:
   header_ratio: 0.12
   body_start_ratio: 0.12
-  body_end_ratio: 0.95
+  body_end_ratio: 0.98
   chunk_height_ratio: 0.35
   overlap_ratio: 0.25
   attach_header: true
