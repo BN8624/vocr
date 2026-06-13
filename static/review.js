@@ -14,6 +14,86 @@
     no_source_total: '원본 합계 없음',
     incomplete_source_scan: '합계 확인 미완료'
   };
+  const workflowOrder = ['mapping', 'validation', 'excel', 'pages', 'advanced'];
+  const workflowPanels = new Map(
+    workflowOrder
+      .map(id => [id, document.getElementById(id)])
+      .filter(([, panel]) => Boolean(panel))
+  );
+  const workflowSteps = workflowOrder.filter(id => workflowPanels.has(id));
+  const taskItems = [...document.querySelectorAll('[data-workflow-target]')];
+  const taskSection = document.querySelector('.review-tasks');
+  const workflowActions = document.createElement('div');
+  workflowActions.className = 'wizard-actions';
+  workflowActions.innerHTML = [
+    '<button type="button" class="wizard-prev">이전</button>',
+    '<span class="wizard-current"></span>',
+    '<button type="button" class="wizard-next">다음</button>'
+  ].join('');
+  if (taskSection && workflowSteps.length > 1) {
+    taskSection.appendChild(workflowActions);
+  }
+  const workflowCurrent = workflowActions.querySelector('.wizard-current');
+  const workflowPrev = workflowActions.querySelector('.wizard-prev');
+  const workflowNext = workflowActions.querySelector('.wizard-next');
+
+  const workflowTitle = (id) => {
+    const task = taskItems.find(item => item.dataset.workflowTarget === id);
+    return task?.querySelector('strong')?.textContent || id;
+  };
+
+  const activateWorkflowStep = (target, pushHash = true) => {
+    if (!workflowSteps.length) return;
+    const fallback = workflowSteps[0];
+    const activeId = workflowPanels.has(target) ? target : fallback;
+    const activeIndex = workflowSteps.indexOf(activeId);
+    document.body.classList.add('workflow-ready');
+    workflowPanels.forEach((panel, id) => {
+      const active = id === activeId;
+      panel.classList.toggle('is-active', active);
+      panel.hidden = !active;
+    });
+    taskItems.forEach(item => {
+      const itemTarget = item.dataset.workflowTarget || '';
+      const available = workflowPanels.has(itemTarget);
+      const active = itemTarget === activeId;
+      item.classList.toggle('active', active);
+      item.classList.toggle('disabled', !available);
+      item.setAttribute('aria-current', active ? 'step' : 'false');
+      if (!available) item.setAttribute('aria-disabled', 'true');
+    });
+    if (workflowCurrent) {
+      workflowCurrent.textContent = `${activeIndex + 1}/${workflowSteps.length} · ${workflowTitle(activeId)}`;
+    }
+    if (workflowPrev) workflowPrev.disabled = activeIndex <= 0;
+    if (workflowNext) workflowNext.disabled = activeIndex >= workflowSteps.length - 1;
+    if (pushHash && window.location.hash !== `#${activeId}`) {
+      history.replaceState(null, '', `#${activeId}`);
+    }
+  };
+
+  taskItems.forEach(item => {
+    item.addEventListener('click', event => {
+      const target = item.dataset.workflowTarget || '';
+      if (!workflowPanels.has(target)) return;
+      event.preventDefault();
+      activateWorkflowStep(target);
+    });
+  });
+  if (workflowPrev) {
+    workflowPrev.addEventListener('click', () => {
+      const active = workflowSteps.find(id => workflowPanels.get(id)?.classList.contains('is-active')) || workflowSteps[0];
+      activateWorkflowStep(workflowSteps[Math.max(0, workflowSteps.indexOf(active) - 1)]);
+    });
+  }
+  if (workflowNext) {
+    workflowNext.addEventListener('click', () => {
+      const active = workflowSteps.find(id => workflowPanels.get(id)?.classList.contains('is-active')) || workflowSteps[0];
+      activateWorkflowStep(workflowSteps[Math.min(workflowSteps.length - 1, workflowSteps.indexOf(active) + 1)]);
+    });
+  }
+  activateWorkflowStep((window.location.hash || '').replace('#', ''), false);
+  window.activateWorkflowStep = activateWorkflowStep;
 
   const collectPayload = (status) => {
     const mappingPanel = document.querySelector('.mapping-panel');
@@ -131,6 +211,7 @@
             ? `PC profiles 폴더에 저장했고 Excel도 갱신했습니다: ${result.filename}`
             : `PC profiles 폴더에 저장했습니다: ${result.filename}`;
         }
+        activateWorkflowStep('validation');
       } catch (error) {
         if (message) message.textContent = '저장 서버가 없거나 실패했습니다. JSON 내려받기를 사용하세요.';
       }
@@ -183,6 +264,7 @@
             ? '저장했고 현재 검산 요약과 Excel도 갱신했습니다.'
             : `저장했습니다. ${result.refresh?.message || '같은 명령을 다시 실행하면 검산에 반영됩니다.'}`;
         }
+        activateWorkflowStep('excel');
       } catch (error) {
         if (checksumMessage) checksumMessage.textContent = '저장 서버가 없거나 실패했습니다. serve_review.py로 열어 주세요.';
       }

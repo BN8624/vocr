@@ -53,9 +53,13 @@ def main() -> int:
         assert "<title>Smoke Review</title>" in html
         assert "<style>" in html
         assert "<script>" in html
-        assert "지금 할 일" in html
-        assert "열 매핑 확인" in html
+        assert "변환 확인" in html
+        assert "원본 위치" in html
+        assert "workflow-panel" in html
+        assert "data-workflow-target=\"pages\"" in html
         assert "const saveButton = document.getElementById('save-mapping')" in html
+        assert "activateWorkflowStep" in html
+        assert "wizard-actions" in html
         assert "data-overlay-field=\"body_start_ratio\"" in html
         assert "이 페이지 자르기 조정" in html
         assert "page_001_chunk_01" in html

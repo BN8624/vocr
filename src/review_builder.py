@@ -49,7 +49,13 @@ def build_review_html(
         f"<div><strong>청크</strong><span>{len(chunks)}</span></div>",
         f"<div><strong>AI 추출</strong><span>성공 {vision_ok} / 오류 {vision_errors}</span></div>",
         "</section>",
-        _review_tasks_block(mapping_output, validation_output, excel_output, len(pages)),
+        _review_tasks_block(
+            mapping_output,
+            validation_output,
+            excel_output,
+            len(pages),
+            has_advanced=bool(merge_output or normalization_output),
+        ),
     ]
     if mapping_output:
         html.append(_mapping_block(review_path, mapping_output))
@@ -65,10 +71,11 @@ def build_review_html(
         advanced_parts.append(_normalization_block(review_path, normalization_output))
     if advanced_parts:
         html.append(
-            '<details class="advanced-output">'
-            "<summary>고급 정보 보기</summary>"
+            '<section id="advanced" class="advanced-output workflow-panel">'
+            "<h2>고급 정보</h2>"
+            '<p class="note">문제가 있을 때만 확인하는 내부 처리 정보입니다.</p>'
             f"{''.join(advanced_parts)}"
-            "</details>"
+            "</section>"
         )
 
     page_sections = []
@@ -122,7 +129,7 @@ def build_review_html(
 
     if page_sections:
         html.append(
-            '<section id="pages" class="pages-panel">'
+            '<section id="pages" class="pages-panel workflow-panel">'
             "<h2>원본 페이지 확인</h2>"
             '<p class="note">표가 잘렸거나 위치 판단이 필요할 때만 펼쳐서 확인하세요.</p>'
             f"{''.join(page_sections)}"
@@ -146,6 +153,7 @@ def _review_tasks_block(
     validation_output: ValidationOutput | None,
     excel_output: ExcelExportOutput | None,
     page_count: int,
+    has_advanced: bool = False,
 ) -> str:
     mapping_review_count = _mapping_review_count(mapping_output)
     checksum_status = validation_output.checksum_status if validation_output else "not_run"
@@ -157,55 +165,76 @@ def _review_tasks_block(
         if isinstance(column_quality, dict):
             column_issue_count = int(column_quality.get("issue_count", 0) or 0)
 
-    tasks = [
+    tasks = []
+    step_number = 1
+    if mapping_output:
+        tasks.append(
+            _task_item(
+                number=step_number,
+                title="열 매핑",
+                status=f"확인 필요 {mapping_review_count}개" if mapping_review_count else "바로 저장 가능",
+                href="#mapping",
+                tone="warn" if mapping_review_count else "ok",
+            )
+        )
+        step_number += 1
+    if validation_output:
+        validation_status = (
+            f"{checksum_label} · 행 {issue_count}개 · 열 {column_issue_count}개"
+            if issue_count or column_issue_count
+            else checksum_label
+        )
+        tasks.append(
+            _task_item(
+                number=step_number,
+                title="검산/확인필요",
+                status=validation_status,
+                href="#validation",
+                tone=(
+                    "ok"
+                    if checksum_status == "user_confirmed_total_matched"
+                    and issue_count == 0
+                    and column_issue_count == 0
+                    else "warn"
+                ),
+            )
+        )
+        step_number += 1
+    if excel_output:
+        tasks.append(
+            _task_item(
+                number=step_number,
+                title="Excel",
+                status="생성됨",
+                href="#excel",
+                tone="ok",
+            )
+        )
+        step_number += 1
+    tasks.append(
         _task_item(
-            number=1,
-            title="열 매핑 확인",
-            status=(
-                f"확인 필요 {mapping_review_count}개"
-                if mapping_review_count
-                else "애매한 열 없음" if mapping_output else "아직 매핑 없음"
-            ),
-            href="#mapping",
-            tone="warn" if mapping_review_count else "ok" if mapping_output else "idle",
-        ),
-        _task_item(
-            number=2,
-            title="검산 기준 선택",
-            status=checksum_label if validation_output else "아직 검증 없음",
-            href="#validation",
-            tone="ok" if checksum_status == "user_confirmed_total_matched" else "warn",
-        ),
-        _task_item(
-            number=3,
-            title="확인필요 검토",
-            status=(
-                f"행 {issue_count}개, 열 {column_issue_count}개"
-                if issue_count or column_issue_count
-                else "문제 없음" if validation_output else "아직 검증 없음"
-            ),
-            href="#validation",
-            tone="warn" if issue_count or column_issue_count else "ok" if validation_output else "idle",
-        ),
-        _task_item(
-            number=4,
-            title="Excel 확인",
-            status="생성됨" if excel_output else "아직 없음",
-            href="#excel",
-            tone="ok" if excel_output else "idle",
-        ),
-        _task_item(
-            number=5,
-            title="원본 위치 확인",
+            number=step_number,
+            title="원본 위치",
             status=f"{page_count}페이지, 필요할 때만",
             href="#pages",
             tone="idle",
-        ),
-    ]
+        )
+    )
+    step_number += 1
+    if has_advanced:
+        tasks.append(
+            _task_item(
+                number=step_number,
+                title="고급 정보",
+                status="문제 있을 때만",
+                href="#advanced",
+                tone="idle",
+            )
+        )
     return (
         '<section class="review-tasks">'
-        "<h2>지금 할 일</h2>"
-        '<p class="task-lead">위에서부터 필요한 항목만 확인하세요. 원본 이미지와 JSON은 아래 고급 정보에 접어 두었습니다.</p>'
+        "<h2>변환 확인</h2>"
+        '<p class="task-lead">순서대로 확인하면 됩니다. 저장이 끝나면 다음 단계로 자동 이동합니다.</p>'
         '<div class="task-list">'
         f"{''.join(tasks)}"
         "</div>"
@@ -225,8 +254,9 @@ def _mapping_review_count(mapping_output: MappingOutput | None) -> int:
 
 
 def _task_item(number: int, title: str, status: str, href: str, tone: str) -> str:
+    target = href.lstrip("#")
     return (
-        f'<a class="task-item {escape(tone)}" href="{escape(href)}">'
+        f'<a class="task-item {escape(tone)}" href="{escape(href)}" data-workflow-target="{escape(target)}">'
         f'<span class="task-number">{number}</span>'
         "<span>"
         f"<strong>{escape(title)}</strong>"
@@ -323,7 +353,7 @@ def _pixel_ratio(value: int, height: int) -> float:
 
 def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
     parts = [
-        f'<section id="mapping" class="mapping-panel" data-mapping-path="{escape(_relative_src(review_path, mapping_output.suggestions_path))}">',
+        f'<section id="mapping" class="mapping-panel workflow-panel" data-mapping-path="{escape(_relative_src(review_path, mapping_output.suggestions_path))}">',
         "<h2>열 매핑 확인</h2>",
         '<p class="note">AI가 읽은 열을 실제 의미에 맞게 확인하세요. 저장 버튼은 이 화면에서 JSON 파일을 내려받습니다.</p>',
         '<div class="merge-links">',
@@ -506,7 +536,7 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
     column_issue_count = int(column_quality.get("issue_count", 0) or 0)
     column_ok = column_issue_count == 0
     parts = [
-        '<section id="validation" class="validation-panel">',
+        '<section id="validation" class="validation-panel workflow-panel">',
         "<h2>검증 결과</h2>",
         (
             f'<p id="checksum-status-line" class="{checksum_class}" '
@@ -665,7 +695,7 @@ def _excel_block(review_path: Path, excel_output: ExcelExportOutput) -> str:
     sheet_text = ", ".join(excel_output.sheet_names) if excel_output.sheet_names else "전체명세, 검산, 원본셀, 추가필드, 확인필요"
     return "\n".join(
         [
-            '<section id="excel" class="excel-panel">',
+            '<section id="excel" class="excel-panel workflow-panel">',
             "<h2>엑셀 출력</h2>",
             '<p class="mapping-ok">검증 결과를 포함한 엑셀 파일을 만들었습니다. 확인필요 행도 숨기지 않고 별도 시트에 담았습니다.</p>',
             '<div class="summary excel-stats">',
