@@ -264,6 +264,6 @@ Keep `.gitignore` enforcing those boundaries.
 
 ## Suggested Next Work
 
-Good next improvements:
+No remaining automated implementation task is planned in this document.
 
-1. Add optional Playwright/browser interaction checks if a browser runtime is installed.
+Remaining work is user-side review with real statements in `review.html`, plus optional browser interaction checks if a Playwright/browser runtime is installed later.
