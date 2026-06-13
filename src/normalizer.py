@@ -98,6 +98,8 @@ def _row_exclusion_reason(row: dict[str, Any]) -> str:
         return "duplicate_excluded"
     if _has_invalid_date_cell(row):
         return "invalid_date"
+    if _has_misaligned_amount_review(row):
+        return "misaligned_amount"
     return ""
 
 
@@ -108,11 +110,18 @@ def _has_invalid_date_cell(row: dict[str, Any]) -> bool:
     return _looks_like_date_token(cells[0]) and not _is_valid_date_like(cells[0])
 
 
+def _has_misaligned_amount_review(row: dict[str, Any]) -> bool:
+    quality = row.get("quality", {}) if isinstance(row.get("quality"), dict) else {}
+    if not quality.get("needs_review"):
+        return False
+    reason = str(quality.get("review_reason", "")).lower()
+    return "misaligned" in reason or "truncated" in reason
+
+
 def _exclude_normalized_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
     grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
-        key = _normalized_duplicate_key(row)
-        if key:
+        for key in _normalized_duplicate_keys(row):
             grouped[key].append(row)
 
     excluded: set[tuple[str, int]] = set()
@@ -124,7 +133,7 @@ def _exclude_normalized_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dic
         for page_rows in by_page.values():
             chunks = {_chunk_index(str(row.get("source", {}).get("chunk_id", ""))) for row in page_rows}
             chunk_numbers = sorted(index for index in chunks if index is not None)
-            if len(page_rows) < 2 or not chunk_numbers or chunk_numbers[-1] - chunk_numbers[0] > 1:
+            if len(page_rows) < 2 or not _looks_like_normalized_overlap(chunk_numbers):
                 continue
             representative = max(page_rows, key=_normalized_representative_score)
             representative_key = _source_key(representative)
@@ -142,18 +151,44 @@ def _exclude_normalized_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dic
     return kept, len(excluded)
 
 
-def _normalized_duplicate_key(row: dict[str, Any]) -> tuple[Any, ...] | None:
+def _normalized_duplicate_keys(row: dict[str, Any]) -> list[tuple[Any, ...]]:
     source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
     transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
     amount = transaction.get("amount")
     if not isinstance(amount, int):
-        return None
+        return []
     date = str(transaction.get("date", "")).strip()
     if not date:
-        return None
+        return []
     billing_amount = transaction.get("billing_amount")
     billing_key = billing_amount if isinstance(billing_amount, int) else amount
-    return (int(source.get("page", 0) or 0), date, amount, billing_key)
+    page = int(source.get("page", 0) or 0)
+    keys: list[tuple[Any, ...]] = [("date_amount", page, date, amount, billing_key)]
+
+    transaction_type = str(transaction.get("transaction_type", "")).strip()
+    if re.fullmatch(r"\d+\s*/\s*\d+", transaction_type):
+        original_amount = _original_amount(row)
+        if isinstance(original_amount, int):
+            keys.append(("installment_amount", page, transaction_type, original_amount, amount, billing_key))
+    return keys
+
+
+def _looks_like_normalized_overlap(chunk_numbers: list[int]) -> bool:
+    if not chunk_numbers:
+        return False
+    span = chunk_numbers[-1] - chunk_numbers[0]
+    return span <= 1 or (span <= 2 and len(set(chunk_numbers)) >= 2)
+
+
+def _original_amount(row: dict[str, Any]) -> int | None:
+    extra_fields = row.get("extra_fields", {}) if isinstance(row.get("extra_fields"), dict) else {}
+    for key, value in extra_fields.items():
+        if "이용금액" not in str(key):
+            continue
+        amount = _parse_amount(str(value))
+        if isinstance(amount, int):
+            return amount
+    return None
 
 
 def _normalized_representative_score(row: dict[str, Any]) -> tuple[int, int, int, int]:

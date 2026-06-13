@@ -77,6 +77,7 @@ def main() -> int:
 
         _assert_non_adjacent_duplicates_need_review(root / "non_adjacent")
         _assert_normalized_variant_duplicates_excluded(root / "normalized_variant")
+        _assert_installment_variant_duplicates_excluded(root / "installment_variant")
 
     print("duplicate representative test passed")
     return 0
@@ -225,6 +226,54 @@ def _assert_normalized_variant_duplicates_excluded(root: Path) -> None:
     assert normalization_output is not None
     assert normalization_output.transaction_count == 1
     assert normalization_output.amount_total == 10000
+    assert normalization_output.summary["normalized_duplicate_excluded_count"] == 1
+
+
+def _assert_installment_variant_duplicates_excluded(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    chunks = [
+        _chunk("page_001_chunk_01", root / "chunk_01.png", 1),
+        _chunk("page_001_chunk_03", root / "chunk_03.png", 3),
+    ]
+    header = ["이용일자", "이용카드", "이용가맹점", "이용금액", "할부 기간/회차", "이번달 내실 금액 원금"]
+    vision_results = [
+        _vision_with_header(
+            "page_001_chunk_01",
+            header,
+            [["24.12.07", "본인31*", "쿠팡", "51,980", "5/5", "10,300"]],
+        ),
+        _vision_with_header(
+            "page_001_chunk_03",
+            header,
+            [["25.04.24", "본인31*", "쿠팡", "51,980", "5/5", "10,300"]],
+        ),
+    ]
+    merge_output = build_row_outputs(
+        vision_results=vision_results,
+        chunks=chunks,
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[
+            _mapping_group_for(header, ["date", "card_label", "merchant", "extra", "transaction_type", "amount"])
+        ],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping_output,
+        merged_dir=merged_dir,
+    )
+    assert normalization_output is not None
+    assert normalization_output.transaction_count == 1
+    assert normalization_output.amount_total == 10300
     assert normalization_output.summary["normalized_duplicate_excluded_count"] == 1
 
 

@@ -76,3 +76,14 @@
 - 하이패스 이용내역은 날짜 범위와 건수가 포함되어 숫자가 많지만 정상 가맹점명이므로 숫자 오염 검증 예외에 추가했다.
 - 삼성 `amount_total`은 청구할인 반영 후 금액이고 원문 `이용금액합계`는 할인 전 금액이다. 검산에서는 거래 extra fields의 할인 가능 금액 범위 안에서 차이를 보정해 `이용금액합계 합산 11,198,212`와 자동 일치시킨다.
 - 최종 `output/acceptance_samsung_5` 결과는 `llm_calls=0`, `vision_ok=20`, `vision_errors=0`, `transaction_count=180`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `difference=0`이다.
+
+## 2026-06-13 신한카드_11 앞 5페이지 캐시 기반 정확도 개선
+
+- 사용자가 말한 `신한카드5`는 별도 `견본/신한카드_5.pdf`가 아니라 `신한카드_11.pdf` 대표 캐시의 앞 5페이지를 뜻한다.
+- `output/page_cache/shinhan/shinhan_11`은 44/44 캐시 성공 상태였고, 앞 5페이지에 해당하는 20개 Vision JSON을 `output/acceptance_shinhan_5/cache`로 복사했다.
+- `main.py`는 입력 PDF 전체 페이지 기준으로 청크를 만들기 때문에, PyMuPDF로 `output/acceptance_shinhan_5/신한카드_5_from_11.pdf` 앞 5페이지 PDF를 생성해 입력으로 사용했다.
+- 최초 캐시 실행 결과는 `llm_calls=0`, `vision_ok=20`, `normalization_review_count=1`, `validation_issue_row_count=0`, `checksum_status=no_user_total_selected`, `amount_total=12,789,514`였다.
+- 원문 `총합계` 1~5페이지 합산은 `12,749,514`였고 거래 합계가 40,000원 과다였다. 원인은 할부 행 변형 중복 3건과 Vision이 `misaligned or possibly truncated`라고 표시한 9,900원 리뷰 행이었다.
+- 정규화 중복 제거를 `할부 기간/회차 + 원거래 이용금액 + 이번달 원금` 기준 변형 중복까지 확장했다. 같은 행이 겹침 청크에서 날짜나 가맹점 OCR만 흔들려도 대표행 1개만 남긴다.
+- Vision이 직접 `misaligned` 또는 `truncated`로 표시한 금액 리뷰 행은 거래 합계에서 제외하도록 했다.
+- 최종 `output/acceptance_shinhan_5` 결과는 `llm_calls=0`, `vision_ok=20`, `vision_errors=0`, `transaction_count=226`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `matched_total=총합계 합산 12,749,514`, `difference=0`이다.
