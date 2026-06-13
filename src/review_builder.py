@@ -74,18 +74,22 @@ def build_review_html(
     for page in pages:
         page_src = _relative_src(review_path, page.image_path)
         page_chunks = chunks_by_page.get(page.page_number, [])
+        crop_ratios = _page_crop_ratios(page, page_chunks)
         html.extend(
             [
                 '<section class="page-section">',
                 f"<h2>{escape(page.page_id)}</h2>",
                 '<div class="page-grid">',
                 '<figure class="page-image">',
+                f'<div class="page-image-wrap" data-page-number="{page.page_number}">',
                 f'<img src="{escape(page_src)}" alt="{escape(page.page_id)}">',
+                _page_crop_overlay(crop_ratios),
+                "</div>",
                 "<figcaption>",
                 f"{page.width} x {page.height}px, {page.dpi} DPI",
                 " 캐시 사용" if page.reused else " 새로 생성",
                 "</figcaption>",
-                _page_crop_controls(review_path, page, page_chunks),
+                _page_crop_controls(review_path, page, crop_ratios),
                 "</figure>",
                 '<div class="chunks">',
             ]
@@ -120,9 +124,28 @@ def build_review_html(
     return review_path
 
 
-def _page_crop_controls(review_path: Path, page: PageImage, page_chunks: list[ChunkImage]) -> str:
+def _page_crop_overlay(ratios: dict[str, float]) -> str:
+    labels = {
+        "header_ratio": "헤더",
+        "body_start_ratio": "거래 시작",
+        "body_end_ratio": "거래 끝",
+        "summary_start_ratio": "합계 시작",
+        "summary_end_ratio": "합계 끝",
+    }
+    lines = []
+    for field, label in labels.items():
+        percent = max(0, min(100, round(float(ratios.get(field, 0)) * 100)))
+        lines.append(
+            f'<span class="crop-overlay-line {escape(field)}" '
+            f'data-overlay-field="{escape(field)}" style="top: {percent}%">'
+            f'<em>{escape(label)}</em>'
+            "</span>"
+        )
+    return '<div class="crop-overlay" aria-hidden="true">' + "".join(lines) + "</div>"
+
+
+def _page_crop_controls(review_path: Path, page: PageImage, ratios: dict[str, float]) -> str:
     state_path = review_path.parent / "merged" / "page_crop_profile.json"
-    ratios = _page_crop_ratios(page, page_chunks)
     controls = [
         ("header_ratio", "헤더 끝", ratios["header_ratio"]),
         ("body_start_ratio", "거래 시작", ratios["body_start_ratio"]),
@@ -1032,6 +1055,11 @@ def _script_block() -> str:
     const output = input.closest('.crop-control')?.querySelector('output');
     const update = () => {
       if (output) output.textContent = `${input.value}%`;
+      const panel = input.closest('.crop-controls');
+      const figure = panel?.closest('.page-image');
+      const field = input.dataset.ratioField || '';
+      const line = figure?.querySelector(`.crop-overlay-line[data-overlay-field="${field}"]`);
+      if (line) line.style.top = `${input.value}%`;
     };
     input.addEventListener('input', update);
     update();
@@ -1654,6 +1682,10 @@ figure {
   background: var(--panel);
   padding: 12px;
 }
+.page-image-wrap {
+  position: relative;
+  background: #fff;
+}
 .page-image img,
 .chunk img {
   display: block;
@@ -1661,6 +1693,50 @@ figure {
   height: auto;
   border: 1px solid var(--line);
   background: #fff;
+}
+.crop-overlay {
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+  overflow: hidden;
+}
+.crop-overlay-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 3px solid #176b5d;
+  transform: translateY(-1px);
+}
+.crop-overlay-line em {
+  position: absolute;
+  top: -12px;
+  left: 6px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #202124;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 3px 5px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.16);
+}
+.crop-overlay-line.header_ratio {
+  border-color: #176b5d;
+}
+.crop-overlay-line.body_start_ratio,
+.crop-overlay-line.body_end_ratio {
+  border-color: #c2410c;
+}
+.crop-overlay-line.summary_start_ratio,
+.crop-overlay-line.summary_end_ratio {
+  border-color: #2563eb;
+}
+.crop-overlay-line.body_end_ratio em,
+.crop-overlay-line.summary_end_ratio em {
+  left: auto;
+  right: 6px;
 }
 figcaption {
   margin-top: 8px;

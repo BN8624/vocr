@@ -13,6 +13,7 @@ from main import apply_page_crop_profile
 from serve_review import ReviewRequestHandler, ReviewServer
 from src.chunk_builder import build_chunks, build_total_chunks
 from src.page_renderer import PageImage
+from src.review_builder import build_review_html
 
 
 def main() -> int:
@@ -77,6 +78,17 @@ def main() -> int:
         assert total_chunks[0].header_y_end == 20
         assert total_chunks[0].source_y_start == 70
         assert total_chunks[0].source_y_end == 90
+        review_path = build_review_html(
+            output_dir=root,
+            pages=[page],
+            chunks=chunks + total_chunks,
+            config={"html_title": "test review"},
+            input_pdf=root / "sample.pdf",
+        )
+        html = review_path.read_text(encoding="utf-8")
+        assert 'class="crop-overlay"' in html
+        assert 'data-overlay-field="body_start_ratio"' in html
+        assert 'style="top: 30%"' in html
 
         _assert_server_saves_crop_profile(root)
 

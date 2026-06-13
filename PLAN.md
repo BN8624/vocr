@@ -37,6 +37,7 @@ Implemented:
 - Phase 7D: table-signature profile matching with auto/candidate thresholds
 - Phase 7E: review-state save refreshes validation summary from cached Vision results in the review server
 - Phase 7F: page-level crop profile saved from review UI and applied to chunk/total extraction on rerun
+- Phase 7G: visual crop overlays on page images for header/body/summary slider positions
 - Phase 8: Excel export to `result.xlsx`
 
 Generated Excel sheets:
@@ -189,6 +190,7 @@ Implemented checks include:
 - mapping profiles can match by table signature, not only exact header/group id
 - `serve_review.py` refreshes `validation_summary.json` immediately after saving a checksum choice when cached Vision and normalized transactions already exist
 - page-level crop profiles can adjust header/body/summary ratios for difficult pages without changing global config
+- crop sliders update colored overlay lines on the page image before rerunning extraction
 
 Checksum status meanings:
 
@@ -248,5 +250,4 @@ Good next improvements:
 
 1. Add more validation tests with tiny fixture JSONL files.
 2. Split `review_builder.py` into template/static assets once behavior stabilizes.
-3. Add visual crop overlays on page images so slider positions are visible before rerunning.
-4. Add a small profile management CLI for listing/removing saved profiles.
+3. Add a small profile management CLI for listing/removing saved profiles.
