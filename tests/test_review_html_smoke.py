@@ -23,6 +23,14 @@ def main() -> int:
         _write_blank(page_path)
         _write_blank(chunk_path)
 
+        auto_mapping = MappingOutput(
+            suggestions_path=suggestions_path,
+            profile_dir=root / "profiles",
+            table_groups=[_mapping_group(requires_review=False)],
+            option_labels={"date": "이용일", "extra": "추가필드", "ignore": "무시"},
+            applied_profiles=[],
+        )
+
         review_path = build_review_html(
             output_dir=root,
             pages=[
@@ -52,44 +60,60 @@ def main() -> int:
             ],
             config={"html_title": "Smoke Review"},
             input_pdf=root / "sample.pdf",
-            mapping_output=MappingOutput(
-                suggestions_path=suggestions_path,
-                profile_dir=root / "profiles",
-                table_groups=[
-                    {
-                        "group_id": "table_1",
-                        "row_count": 1,
-                        "columns": [
-                            {
-                                "column_id": "col_1",
-                                "header": "이용일",
-                                "suggested_field": "date",
-                                "requires_review": False,
-                                "sample_values": ["03.14"],
-                            }
-                        ],
-                    }
-                ],
-                option_labels={"date": "이용일", "extra": "추가필드", "ignore": "무시"},
-                applied_profiles=[],
-            ),
+            mapping_output=auto_mapping,
         )
         html = review_path.read_text(encoding="utf-8")
         assert "<title>Smoke Review</title>" in html
         assert "<style>" in html
         assert "<script>" in html
         assert "변환 확인" in html
-        assert "workflow-panel" in html
+        assert 'id="mapping"' not in html
+        assert 'data-workflow-target="mapping"' not in html
         assert "data-workflow-target=\"pages\"" not in html
         assert "const saveButton = document.getElementById('save-mapping')" in html
         assert "activateWorkflowStep" in html
-        assert "wizard-actions" in html
         assert "원본 페이지 확인" not in html
         assert "{{ body }}" not in html
         assert "{{ script_block }}" not in html
 
+        review_mapping = MappingOutput(
+            suggestions_path=suggestions_path,
+            profile_dir=root / "profiles",
+            table_groups=[_mapping_group(requires_review=True)],
+            option_labels={"date": "이용일", "extra": "추가필드", "ignore": "무시"},
+            applied_profiles=[],
+        )
+        review_path = build_review_html(
+            output_dir=root,
+            pages=[],
+            chunks=[],
+            config={"html_title": "Smoke Review"},
+            input_pdf=root / "sample.pdf",
+            mapping_output=review_mapping,
+        )
+        html = review_path.read_text(encoding="utf-8")
+        assert 'id="mapping"' in html
+        assert 'data-workflow-target="mapping"' in html
+        assert "PC에 매핑 저장" in html
+
     print("review html smoke test passed")
     return 0
+
+
+def _mapping_group(requires_review: bool) -> dict[str, object]:
+    return {
+        "group_id": "table_1",
+        "row_count": 1,
+        "columns": [
+            {
+                "column_id": "col_1",
+                "header": "이용일",
+                "suggested_field": "date",
+                "requires_review": requires_review,
+                "sample_values": ["03.14"],
+            }
+        ],
+    }
 
 
 def _write_blank(path: Path) -> None:

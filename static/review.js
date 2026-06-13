@@ -71,6 +71,10 @@
       history.replaceState(null, '', `#${activeId}`);
     }
   };
+  const activateFirstAvailable = (targets) => {
+    const target = targets.find(id => workflowPanels.has(id)) || workflowSteps[0];
+    activateWorkflowStep(target);
+  };
 
   taskItems.forEach(item => {
     item.addEventListener('click', event => {
@@ -211,7 +215,7 @@
             ? `PC profiles 폴더에 저장했고 Excel도 갱신했습니다: ${result.filename}`
             : `PC profiles 폴더에 저장했습니다: ${result.filename}`;
         }
-        activateWorkflowStep('validation');
+        activateFirstAvailable(['validation', 'excel']);
       } catch (error) {
         if (message) message.textContent = '저장 서버가 없거나 실패했습니다. JSON 내려받기를 사용하세요.';
       }
@@ -264,7 +268,7 @@
             ? '저장했고 현재 검산 요약과 Excel도 갱신했습니다.'
             : `저장했습니다. ${result.refresh?.message || '같은 명령을 다시 실행하면 검산에 반영됩니다.'}`;
         }
-        activateWorkflowStep('excel');
+        activateFirstAvailable(['excel']);
       } catch (error) {
         if (checksumMessage) checksumMessage.textContent = '저장 서버가 없거나 실패했습니다. serve_review.py로 열어 주세요.';
       }

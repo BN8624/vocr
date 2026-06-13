@@ -176,6 +176,29 @@ h3 {
   max-height: calc(100vh - 210px);
   overflow: auto;
 }
+.judgment-list {
+  display: grid;
+  gap: 12px;
+}
+.judgment-card {
+  border: 1px solid #e2a35d;
+  border-radius: 8px;
+  background: #fffaf2;
+  padding: 12px;
+}
+.judgment-card h3 {
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+.judgment-card .note {
+  margin-top: 0;
+}
+.compact-stats {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+}
+.technical-details {
+  margin-top: 12px;
+}
 .merge-summary {
   margin-top: 22px;
   padding-top: 18px;

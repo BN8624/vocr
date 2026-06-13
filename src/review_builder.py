@@ -47,29 +47,14 @@ def build_review_html(
             mapping_output,
             validation_output,
             excel_output,
-            has_advanced=bool(merge_output or normalization_output),
         ),
     ]
-    if mapping_output:
+    if mapping_output and _mapping_needs_judgment(mapping_output):
         html.append(_mapping_block(review_path, mapping_output))
-    if validation_output:
+    if validation_output and _validation_needs_judgment(validation_output):
         html.append(_validation_block(review_path, validation_output))
     if excel_output:
         html.append(_excel_block(review_path, excel_output))
-
-    advanced_parts = []
-    if merge_output:
-        advanced_parts.append(_merge_block(review_path, merge_output))
-    if normalization_output:
-        advanced_parts.append(_normalization_block(review_path, normalization_output))
-    if advanced_parts:
-        html.append(
-            '<section id="advanced" class="advanced-output workflow-panel">'
-            "<h2>고급 정보</h2>"
-            '<p class="note">문제가 있을 때만 확인하는 내부 처리 정보입니다.</p>'
-            f"{''.join(advanced_parts)}"
-            "</section>"
-        )
 
     review_path.write_text(
         _render_template(
@@ -87,7 +72,6 @@ def _review_tasks_block(
     mapping_output: MappingOutput | None,
     validation_output: ValidationOutput | None,
     excel_output: ExcelExportOutput | None,
-    has_advanced: bool = False,
 ) -> str:
     mapping_review_count = _mapping_review_count(mapping_output)
     checksum_status = validation_output.checksum_status if validation_output else "not_run"
@@ -101,18 +85,21 @@ def _review_tasks_block(
 
     tasks = []
     step_number = 1
-    if mapping_output:
+    mapping_needs = bool(mapping_output and mapping_review_count > 0)
+    validation_needs = bool(validation_output and _validation_needs_judgment(validation_output))
+
+    if mapping_needs:
         tasks.append(
             _task_item(
                 number=step_number,
                 title="열 매핑",
-                status=f"확인 필요 {mapping_review_count}개" if mapping_review_count else "바로 저장 가능",
+                status=f"확인 필요 {mapping_review_count}개",
                 href="#mapping",
-                tone="warn" if mapping_review_count else "ok",
+                tone="warn",
             )
         )
         step_number += 1
-    if validation_output:
+    if validation_needs:
         validation_status = (
             f"{checksum_label} · 행 {issue_count}개 · 열 {column_issue_count}개"
             if issue_count or column_issue_count
@@ -145,14 +132,14 @@ def _review_tasks_block(
             )
         )
         step_number += 1
-    if has_advanced:
+    if not tasks:
         tasks.append(
             _task_item(
-                number=step_number,
-                title="고급 정보",
-                status="문제 있을 때만",
-                href="#advanced",
-                tone="idle",
+                number=1,
+                title="판단할 항목 없음",
+                status="출력 파일만 확인하면 됩니다",
+                href="#done",
+                tone="ok",
             )
         )
     return (
@@ -175,6 +162,25 @@ def _mapping_review_count(mapping_output: MappingOutput | None) -> int:
             if isinstance(column, dict) and column.get("requires_review"):
                 count += 1
     return count
+
+
+def _mapping_needs_judgment(mapping_output: MappingOutput | None) -> bool:
+    return _mapping_review_count(mapping_output) > 0
+
+
+def _validation_needs_judgment(validation_output: ValidationOutput | None) -> bool:
+    if not validation_output:
+        return False
+    summary = validation_output.summary
+    checksum = summary.get("checksum", {}) if isinstance(summary.get("checksum"), dict) else {}
+    checksum_status = str(checksum.get("status", validation_output.checksum_status))
+    column_quality = summary.get("column_quality", {}) if isinstance(summary.get("column_quality"), dict) else {}
+    column_issue_count = int(column_quality.get("issue_count", 0) or 0)
+    needs_checksum_choice = checksum_status in {
+        "no_user_total_selected",
+        "user_confirmed_total_mismatch",
+    } and bool(checksum.get("source_total_candidates"))
+    return needs_checksum_choice or validation_output.issue_row_count > 0 or column_issue_count > 0
 
 
 def _task_item(number: int, title: str, status: str, href: str, tone: str) -> str:
@@ -455,40 +461,18 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
     ]
     checksum_status = str(checksum.get("status", validation_output.checksum_status))
     checksum_message = str(checksum.get("message", ""))
-    checksum_class = "mapping-ok" if checksum_status == "user_confirmed_total_matched" else "merge-warning"
-    row_ok = validation_output.issue_row_count == 0
     column_issue_count = int(column_quality.get("issue_count", 0) or 0)
-    column_ok = column_issue_count == 0
     parts = [
         '<section id="validation" class="validation-panel workflow-panel">',
-        "<h2>검증 결과</h2>",
-        (
-            f'<p id="checksum-status-line" class="{checksum_class}" '
-            f'data-checksum-status="{escape(checksum_status)}">'
-            f'{escape(_checksum_label(checksum_status))}: {escape(checksum_message)}</p>'
-        ),
-        (
-            '<p class="mapping-ok">행 단위 이상 징후는 없습니다.</p>'
-            if row_ok
-            else '<p class="merge-warning">행 단위 확인필요 항목이 있습니다. 원본셀과 청크 링크로 바로 확인할 수 있습니다.</p>'
-        ),
-        (
-            '<p class="mapping-ok">열 단위 오염 징후는 없습니다.</p>'
-            if column_ok
-            else '<p class="merge-warning">열 단위 확인필요 항목이 있습니다. 카드명/가맹점/금액 열이 섞였는지 확인하세요.</p>'
-        ),
-        '<div class="summary validation-stats">',
+        "<h2>내 판단 필요</h2>",
+        '<p class="note">정상으로 처리된 항목은 숨겼습니다. 아래 카드만 확인하면 됩니다.</p>',
+        '<div class="summary validation-stats compact-stats">',
         f"<div><strong>거래</strong><span>{validation_output.transaction_count}</span></div>",
         f"<div><strong>문제 행</strong><span>{validation_output.issue_row_count}</span></div>",
-        f"<div><strong>문제 수</strong><span>{validation_output.row_issue_count}</span></div>",
         f"<div><strong>열 문제</strong><span>{column_issue_count}</span></div>",
         f'<div><strong>검산</strong><span id="checksum-status-badge">{escape(_checksum_label(checksum_status))}</span></div>',
         "</div>",
-        '<div class="merge-links">',
-        _file_link(review_path, validation_output.validated_transactions_path, "transactions_validated.jsonl"),
-        _file_link(review_path, validation_output.issues_path, "validation_issues.json"),
-        _file_link(review_path, validation_output.summary_path, "validation_summary.json"),
-        "</div>",
+        '<div class="judgment-list">',
     ]
 
     parts.append(_checksum_details(review_path, validation_output.summary_path.parent / "review_state.json", checksum))
@@ -497,8 +481,9 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
     if issue_counts:
         parts.extend(
             [
-                '<details class="validation-details">',
-                f"<summary>행 문제 유형 보기 ({len(issue_counts)}종류)</summary>",
+                '<section class="judgment-card">',
+                "<h3>행 경고 유형</h3>",
+                '<p class="note">같은 문제는 묶어서 보여줍니다. 실제 행은 아래 카드에서 확인하세요.</p>',
                 '<div class="reason-list">',
             ]
         )
@@ -509,13 +494,14 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
                 f"<span>{escape(str(item.get('label') or item.get('code') or ''))}</span>"
                 "</div>"
             )
-        parts.extend(["</div>", "</details>"])
+        parts.extend(["</div>", "</section>"])
 
     if review_samples:
         parts.extend(
             [
-                '<details class="validation-details">',
-                f"<summary>확인필요 행 샘플 보기 ({len(review_samples)}개)</summary>",
+                '<section class="judgment-card">',
+                f"<h3>확인필요 행 {len(review_samples)}개</h3>",
+                '<p class="note">여기 있는 행만 원본셀과 비교하면 됩니다.</p>',
                 '<div class="normalization-samples">',
             ]
         )
@@ -551,16 +537,29 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
                     "</article>",
                 ]
             )
-        parts.extend(["</div>", "</details>"])
+        parts.extend(["</div>", "</section>"])
 
-    parts.append("</section>")
+    parts.extend(
+        [
+            "</div>",
+            '<details class="validation-details technical-details">',
+            "<summary>기술 파일 보기</summary>",
+            '<div class="merge-links">',
+            _file_link(review_path, validation_output.validated_transactions_path, "transactions_validated.jsonl"),
+            _file_link(review_path, validation_output.issues_path, "validation_issues.json"),
+            _file_link(review_path, validation_output.summary_path, "validation_summary.json"),
+            "</div>",
+            "</details>",
+            "</section>",
+        ]
+    )
     return "\n".join(parts)
 
 
 def _column_quality_details(column_quality: dict[str, Any]) -> str:
     issues = [issue for issue in column_quality.get("issues", []) if isinstance(issue, dict)]
     groups = [group for group in column_quality.get("groups", []) if isinstance(group, dict)]
-    if not issues and not groups:
+    if not issues:
         return ""
 
     issue_cards = []
@@ -598,13 +597,14 @@ def _column_quality_details(column_quality: dict[str, Any]) -> str:
         )
 
     return (
-        '<details class="validation-details">'
-        f"<summary>열 품질 보기 (문제 {len(issues)}개)</summary>"
+        '<section class="judgment-card">'
+        f"<h3>열 섞임 의심 {len(issues)}개</h3>"
+        '<p class="note">합계가 맞아도 열이 섞이면 Excel이 틀립니다. 아래 항목만 확인하세요.</p>'
         '<div class="column-quality-list">'
         f"{''.join(issue_cards) if issue_cards else '<p class=\"mapping-ok\">열 품질 문제는 없습니다.</p>'}"
         f"{''.join(metric_cards)}"
         "</div>"
-        "</details>"
+        "</section>"
     )
 
 
@@ -641,6 +641,9 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
     ]
     if not candidates:
         return ""
+    status = str(checksum.get("status", ""))
+    if status not in {"no_user_total_selected", "user_confirmed_total_mismatch"}:
+        return ""
     selected_total_id = str(checksum.get("selected_total_id", ""))
     auto_match_ids = {
         str(item.get("candidate", {}).get("id", ""))
@@ -672,8 +675,11 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
             "</div>"
         )
     return (
-        '<details class="validation-details">'
-        f"<summary>검산 기준 원본 합계 선택 ({len(candidates)}개 후보)</summary>"
+        '<section class="judgment-card checksum-review">'
+        "<h3>검산 기준 합계 선택</h3>"
+        f'<p id="checksum-status-line" class="merge-warning" data-checksum-status="{escape(status)}">'
+        f'{escape(_checksum_label(status))}: {escape(str(checksum.get("message", "")))}</p>'
+        f"<p class=\"note\">원본에서 최종 비교 기준으로 쓸 합계 1개만 고르세요. 후보 {len(candidates)}개 중에서 선택하면 됩니다.</p>"
         f'<div class="checksum-candidates" data-state-path="{escape(_relative_src(review_path, state_path))}">'
         f"{''.join(candidate_items)}"
         "</div>"
@@ -682,7 +688,7 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
         '<span id="checksum-message" class="note"></span>'
         "</div>"
         '<p class="note">저장하면 서버가 현재 검산 요약과 Excel 파일을 바로 갱신합니다.</p>'
-        "</details>"
+        "</section>"
     )
 
 
