@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
-from src.normalizer import load_normalization_output
+from src.excel_exporter import export_excel
+from src.normalizer import build_transactions, load_normalization_output
+from src.profile_store import load_mapping_suggestions
+from src.row_merger import load_merge_output
 from src.validator import build_validation
 from src.vision_extractor import VisionResult
 
@@ -36,6 +39,7 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
         try:
             payload = self._read_json_body()
             saved_path = self._save_mapping_profile(payload)
+            refresh = self._refresh_mapping_outputs(payload)
         except ValueError as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=400)
             return
@@ -48,6 +52,7 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "path": str(saved_path),
                 "filename": saved_path.name,
+                "refresh": refresh,
             }
         )
 
@@ -116,17 +121,78 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
                 "message": "검증 결과를 즉시 갱신하지 못했습니다. CLI를 다시 실행해 주세요.",
             }
 
-        _update_run_summary(output_dir, validation_output)
+        excel_output = _refresh_excel(output_dir, validation_output)
+        _update_run_summary(output_dir, validation_output, excel_output=excel_output)
         checksum = validation_output.summary.get("checksum", {})
         if not isinstance(checksum, dict):
             checksum = {}
         return {
             "ok": True,
-            "message": "검산 결과를 즉시 갱신했습니다.",
+            "message": "검산 결과와 Excel을 즉시 갱신했습니다." if excel_output else "검산 결과를 즉시 갱신했습니다.",
             "checksum": checksum,
             "checksum_status": validation_output.checksum_status,
             "checksum_difference": validation_output.checksum_difference,
             "validation_summary": str(validation_output.summary_path),
+            "excel_path": str(excel_output.workbook_path) if excel_output else "",
+        }
+
+    def _refresh_mapping_outputs(self, payload: dict[str, Any]) -> dict[str, Any]:
+        mapping_path = str(payload.get("mapping_path", "")).strip()
+        if not mapping_path:
+            return {
+                "ok": False,
+                "message": "현재 output 경로가 없어 매핑 저장 후 산출물을 즉시 갱신하지 않았습니다.",
+            }
+
+        suggestions_path = self._resolve_served_path(mapping_path)
+        if suggestions_path.name != "mapping_suggestions.json":
+            raise ValueError("Mapping path filename must be mapping_suggestions.json")
+        if suggestions_path.parent.name != "merged":
+            raise ValueError("Mapping path must be saved under a merged folder")
+
+        _apply_mapping_payload_to_suggestions(suggestions_path, payload)
+        merged_dir = suggestions_path.parent
+        output_dir = merged_dir.parent
+        merge_output = load_merge_output(merged_dir)
+        mapping_output = load_mapping_suggestions(output_dir, self.server.profiles_dir)
+        if not merge_output or not mapping_output:
+            return {
+                "ok": False,
+                "message": "행 병합 또는 매핑 결과가 없어 산출물을 즉시 갱신하지 못했습니다.",
+            }
+
+        normalization_output = build_transactions(
+            merge_output=merge_output,
+            mapping_output=mapping_output,
+            merged_dir=merged_dir,
+        )
+        if not normalization_output:
+            return {
+                "ok": False,
+                "message": "거래 정규화 결과를 즉시 갱신하지 못했습니다.",
+            }
+
+        validation_output = build_validation(
+            normalization_output=normalization_output,
+            vision_results=_load_cached_vision_results(output_dir / "cache"),
+            merged_dir=merged_dir,
+            expected_chunk_count=_expected_chunk_count(output_dir),
+            review_state=_read_json_object(merged_dir / "review_state.json"),
+        )
+        if not validation_output:
+            return {
+                "ok": False,
+                "message": "검증 결과를 즉시 갱신하지 못했습니다.",
+            }
+
+        excel_output = _refresh_excel(output_dir, validation_output, source_rows_path=merge_output.rows_merged_path)
+        _update_run_summary(output_dir, validation_output, normalization_output=normalization_output, excel_output=excel_output)
+        return {
+            "ok": bool(excel_output),
+            "message": "매핑, 검증, Excel을 즉시 갱신했습니다." if excel_output else "매핑과 검증은 갱신했지만 Excel은 갱신하지 못했습니다.",
+            "transaction_count": normalization_output.transaction_count,
+            "checksum_status": validation_output.checksum_status,
+            "excel_path": str(excel_output.workbook_path) if excel_output else "",
         }
 
     def _read_json_body(self, require_table_groups: bool = True) -> dict[str, Any]:
@@ -243,6 +309,7 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
 
         payload = dict(payload)
         payload.pop("filename", None)
+        payload.pop("mapping_path", None)
         payload["status"] = "user_confirmed_saved"
         payload["saved_at"] = datetime.now().isoformat(timespec="seconds")
         target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -398,14 +465,80 @@ def _expected_chunk_count(output_dir: Path) -> int | None:
     return None
 
 
-def _update_run_summary(output_dir: Path, validation_output: Any) -> None:
+def _refresh_excel(output_dir: Path, validation_output: Any, source_rows_path: Path | None = None) -> Any:
+    source_rows = source_rows_path or output_dir / "merged" / "rows_merged.jsonl"
+    return export_excel(
+        validation_output=validation_output,
+        output_dir=output_dir,
+        filename="result.xlsx",
+        source_rows_path=source_rows,
+    )
+
+
+def _update_run_summary(
+    output_dir: Path,
+    validation_output: Any,
+    normalization_output: Any | None = None,
+    excel_output: Any | None = None,
+) -> None:
     summary_path = output_dir / "summary.json"
     summary = _read_json_object(summary_path)
     if not summary:
         return
     summary["checksum_status"] = validation_output.checksum_status
     summary["validation_issue_row_count"] = validation_output.issue_row_count
+    if normalization_output:
+        summary["transaction_count"] = normalization_output.transaction_count
+        summary["normalization_review_count"] = normalization_output.review_count
+        summary["normalized_amount_total"] = normalization_output.amount_total
+    if excel_output:
+        summary["excel_path"] = str(excel_output.workbook_path)
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _apply_mapping_payload_to_suggestions(suggestions_path: Path, payload: dict[str, Any]) -> None:
+    suggestions = _read_json_object(suggestions_path)
+    groups = suggestions.get("table_groups", []) if isinstance(suggestions.get("table_groups"), list) else []
+    incoming_groups = payload.get("table_groups", []) if isinstance(payload.get("table_groups"), list) else []
+    incoming_by_group = {
+        str(group.get("group_id", "")): group
+        for group in incoming_groups
+        if isinstance(group, dict)
+    }
+
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        incoming_group = incoming_by_group.get(str(group.get("group_id", "")))
+        if not isinstance(incoming_group, dict):
+            continue
+        selected_by_column = {
+            str(column.get("column_id", "")): str(column.get("selected_field", "")).strip()
+            for column in incoming_group.get("columns", [])
+            if isinstance(column, dict)
+        }
+        for column in group.get("columns", []):
+            if not isinstance(column, dict):
+                continue
+            selected = selected_by_column.get(str(column.get("column_id", "")))
+            if not selected:
+                continue
+            column["selected_field"] = selected
+            column["suggested_field"] = selected
+            column["confidence"] = "user_confirmed"
+            column["requires_review"] = False
+            column["review_reason"] = ""
+            column["reason"] = "사용자가 리뷰 화면에서 확정한 매핑입니다."
+        group["review_column_count"] = sum(
+            1 for column in group.get("columns", []) if isinstance(column, dict) and column.get("requires_review")
+        )
+        group["auto_column_count"] = sum(
+            1 for column in group.get("columns", []) if isinstance(column, dict) and not column.get("requires_review")
+        )
+
+    suggestions["status"] = "user_confirmed_applied"
+    suggestions["saved_at"] = datetime.now().isoformat(timespec="seconds")
+    suggestions_path.write_text(json.dumps(suggestions, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _read_json_object(path: Path) -> dict[str, Any]:

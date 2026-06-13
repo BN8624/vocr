@@ -39,8 +39,12 @@ Implemented:
 - Phase 7F: page-level crop profile saved from review UI and applied to chunk/total extraction on rerun
 - Phase 7G: visual crop overlays on page images for header/body/summary slider positions
 - Phase 7H: sample PDF regression report for page/chunk/review output checks
+- Phase 7I: review server regenerates validation and `result.xlsx` after checksum or mapping saves
+- Phase 7J: validation fixture tests for clean and contaminated transaction JSONL cases
+- Phase 7K: generated review HTML smoke test for template/static asset wiring
 - Phase 8: Excel export to `result.xlsx`
 - Utility: `profile_manager.py` for listing, inspecting, renaming, and deleting local mapping profiles
+- Maintenance: review HTML shell, CSS, and JS split into `templates/` and `static/`
 
 Generated Excel sheets:
 
@@ -72,6 +76,7 @@ Generated Excel sheets:
 ├── requirements.txt
 ├── main.py
 ├── serve_review.py
+├── profile_manager.py
 ├── src/
 │   ├── page_renderer.py
 │   ├── chunk_builder.py
@@ -85,6 +90,11 @@ Generated Excel sheets:
 ├── prompts/
 │   ├── vision_extract_table.md
 │   └── vision_repair_rows.md
+├── templates/
+│   └── review.html
+├── static/
+│   ├── review.css
+│   └── review.js
 ├── profiles/
 │   └── README.md
 ├── samples/
@@ -195,6 +205,10 @@ Implemented checks include:
 - crop sliders update colored overlay lines on the page image before rerunning extraction
 - `tests/regression_samples.py` runs local sample PDFs and writes JSON/Markdown regression reports under `output/`
 - `profile_manager.py` helps manage ignored local `profiles/*.json` files without committing user data
+- `serve_review.py` can regenerate current mapping, validation, and Excel outputs after review saves
+- tiny JSONL validation fixtures lock expected row/column contamination warnings
+- `review_builder.py` now loads the review shell, CSS, and JS from separate files
+- generated `review.html` smoke test verifies template placeholders, embedded CSS/JS, and crop overlay markup
 
 Checksum status meanings:
 
@@ -252,6 +266,4 @@ Keep `.gitignore` enforcing those boundaries.
 
 Good next improvements:
 
-1. Add more validation tests with tiny fixture JSONL files.
-2. Split `review_builder.py` into template/static assets once behavior stabilizes.
-3. Add Excel regeneration from the review server after checksum or mapping changes.
+1. Add optional Playwright/browser interaction checks if a browser runtime is installed.
