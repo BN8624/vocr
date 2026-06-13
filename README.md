@@ -177,4 +177,12 @@ Excel 시트:
 python tests/smoke_phase1_samples.py
 ```
 
+전체 견본을 돌려 회귀 리포트를 남기려면:
+
+```bash
+python tests/regression_samples.py
+```
+
+기본은 API를 호출하지 않는 dry-run입니다. 결과는 `output/regression_samples/sample_regression_report.md`와 `.json`에 저장됩니다. 실제 Vision API까지 포함해 점검하려면 `--with-vision`을 붙입니다.
+
 견본 PDF는 로컬 테스트용이며 GitHub에 올리지 않습니다.

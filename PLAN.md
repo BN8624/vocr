@@ -38,6 +38,7 @@ Implemented:
 - Phase 7E: review-state save refreshes validation summary from cached Vision results in the review server
 - Phase 7F: page-level crop profile saved from review UI and applied to chunk/total extraction on rerun
 - Phase 7G: visual crop overlays on page images for header/body/summary slider positions
+- Phase 7H: sample PDF regression report for page/chunk/review output checks
 - Phase 8: Excel export to `result.xlsx`
 
 Generated Excel sheets:
@@ -191,6 +192,7 @@ Implemented checks include:
 - `serve_review.py` refreshes `validation_summary.json` immediately after saving a checksum choice when cached Vision and normalized transactions already exist
 - page-level crop profiles can adjust header/body/summary ratios for difficult pages without changing global config
 - crop sliders update colored overlay lines on the page image before rerunning extraction
+- `tests/regression_samples.py` runs local sample PDFs and writes JSON/Markdown regression reports under `output/`
 
 Checksum status meanings:
 
