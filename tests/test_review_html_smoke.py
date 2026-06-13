@@ -92,9 +92,9 @@ def main() -> int:
         )
         html = review_path.read_text(encoding="utf-8")
         assert 'id="mapping"' in html
-        assert "확인 필요" in html
-        assert "매핑 확인 table_1" in html
-        assert "매핑 저장" in html
+        assert "컬럼 맞추기" in html
+        assert "저장" in html
+        assert "JSON 내려받기" not in html
         assert 'data-workflow-target="mapping"' not in html
 
     print("review html smoke test passed")

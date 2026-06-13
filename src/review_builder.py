@@ -122,36 +122,24 @@ def _transaction_count(
 
 
 def _simple_mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
-    groups = []
+    cards = []
     for group in mapping_output.table_groups:
-        columns = []
         for column in group.get("columns", []):
             if not isinstance(column, dict) or not column.get("requires_review"):
                 continue
-            columns.append(_simple_mapping_column_card(column, mapping_output.option_labels))
-        if not columns:
-            continue
-        groups.append(
-            '<article class="issue-card mapping-group" '
-            f'data-group-id="{escape(str(group.get("group_id", "")))}">'
-            f"<h3>매핑 확인 {escape(str(group.get('group_id', 'table')))}</h3>"
-            f"<p>행 {escape(str(group.get('row_count', 0)))}개 기준으로 열 역할을 확인합니다.</p>"
-            '<div class="mapping-columns">'
-            f"{''.join(columns)}"
-            "</div>"
-            "</article>"
-        )
-    if not groups:
+            cards.append(_simple_mapping_column_card(column, mapping_output.option_labels))
+    if not cards:
         return ""
     return (
         '<div id="mapping" class="mapping-panel" '
         f'data-mapping-path="{escape(str(mapping_output.suggestions_path))}" '
         f'data-profile-dir="{escape(str(mapping_output.profile_dir))}">'
-        '<p class="note">불확실한 열 역할만 표시합니다.</p>'
-        f"{''.join(groups)}"
+        "<h3>컬럼 맞추기</h3>"
+        '<div class="mapping-columns">'
+        f"{''.join(cards)}"
+        "</div>"
         '<div class="mapping-actions">'
-        '<button type="button" id="save-mapping">매핑 저장</button>'
-        '<button type="button" id="download-mapping">JSON 내려받기</button>'
+        '<button type="button" id="save-mapping">저장</button>'
         '<span id="mapping-message" class="note"></span>'
         "</div>"
         "</div>"
@@ -162,22 +150,34 @@ def _simple_mapping_column_card(column: dict[str, Any], option_labels: dict[str,
     column_id = str(column.get("column_id", ""))
     suggested = str(column.get("suggested_field", "extra"))
     samples = column.get("sample_values", [])
-    sample_items = "".join(f"<li>{escape(str(value))}</li>" for value in samples[:5]) if isinstance(samples, list) else ""
+    sample_text = " / ".join(escape(str(value)) for value in samples[:3]) if isinstance(samples, list) else ""
+    sample_html = f'<p class="sample-values">{sample_text}</p>' if sample_text else ""
     options = []
-    for value, label in option_labels.items():
+    visible_fields = [
+        "date",
+        "card_label",
+        "merchant",
+        "amount",
+        "billing_amount",
+        "discount",
+        "ignore",
+    ]
+    if suggested not in visible_fields:
+        visible_fields.insert(-1, suggested)
+    for value in visible_fields:
+        label = option_labels.get(value, value)
         selected = " selected" if value == suggested else ""
         options.append(f'<option value="{escape(str(value))}"{selected}>{escape(str(label))}</option>')
     return (
         '<div class="mapping-column needs-review" '
         f'data-column-id="{escape(column_id)}" data-original-field="{escape(suggested)}">'
         f"<h4>{escape(str(column.get('header') or column_id))}</h4>"
-        "<label><span>열 역할</span>"
+        f"{sample_html}"
+        "<label>"
         f"<select>{''.join(options)}</select>"
         "</label>"
-        f"<ul>{sample_items}</ul>"
         "</div>"
     )
-
 
 def _simple_validation_block(review_path: Path, validation_output: ValidationOutput) -> str:
     summary = validation_output.summary
@@ -232,7 +232,7 @@ def _simple_file_links(
             ]
         )
     if mapping_output:
-        links.append(_file_link(review_path, mapping_output.suggestions_path, "매핑 제안"))
+        links.append(_file_link(review_path, mapping_output.suggestions_path, "열 역할 후보"))
     if normalization_output:
         links.extend(
             [

@@ -147,6 +147,13 @@ h4 {
   color: var(--muted);
   font-size: 13px;
 }
+.sample-values {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
 .mapping-actions, .checksum-actions {
   display: flex;
   flex-wrap: wrap;
