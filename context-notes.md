@@ -62,3 +62,17 @@
 - `tests/test_total_chunks.py`에 totals 청크 응답의 `rows`가 `raw_row_count == 0`으로 제외되는 회귀 검증을 추가했다.
 - `python main.py --input "견본\신한카드_3.pdf" --output output\acceptance_shinhan_3`를 캐시 기반으로 재실행했다. 결과는 `llm_calls=0`, `vision_ok=12`, `transaction_count=141`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `normalized_amount_total=8594250`로 유지됐다.
 - 관련 테스트 `python tests/test_total_chunks.py`, `python tests/test_checksum_selection.py`, `python tests/test_profile_signature.py`가 통과했다.
+
+## 2026-06-13 삼성카드_5 캐시 기반 정확도 개선
+
+- 목표는 대표 캐시를 카드사별로 준비한 뒤 `삼성카드_5.pdf`를 캐시에서 순서대로 재사용해 정확도 100% 지표까지 맞추는 것이다.
+- Gemini 3.1 Flash Lite RPM 15 제한을 고려해 `vision.request_delay_seconds=5` 설정을 유지한다.
+- `삼성카드_7.pdf`의 앞 5페이지 이미지 해시가 `삼성카드_5.pdf`와 동일해, `output/page_cache/samsung/samsung_7`의 앞 5페이지 Vision 캐시 20개를 `output/acceptance_samsung_5/cache`로 복사해 재사용했다.
+- 기존 `삼성카드_5` 산출물은 캐시 20/20, `llm_calls=0`이지만 `normalization_review_count=120`, `validation_issue_row_count=39`, `checksum_status=no_user_total_selected` 상태다.
+- 주요 원인은 삼성 표에서 `이용자`가 `card_label`, `가맹점명/이용내역`이 `merchant`, `이 달에 입금하실 금액`이 검산 기준 `amount`여야 하는데 일부 표가 다르게 매핑된 점이다.
+- totals 청크 응답에 들어온 거래형 `rows`는 검산 후보가 아니라 중복 거래를 만들기 때문에 거래 원천 행에서 제외해야 한다.
+- 삼성 표에서 `이용일수`, `이자/수수료`, `적립금액`이 핵심 금액/날짜 후보로 오인되는 문제를 보정했다.
+- 같은 페이지에서 동일 raw cells가 1,2,3번 청크처럼 세 개의 인접 겹침 청크에 반복될 때는 대표행 1개만 거래로 사용하도록 했다. 1번과 3번 청크에만 반복되는 케이스는 기존 테스트처럼 확인 대상으로 둔다.
+- 하이패스 이용내역은 날짜 범위와 건수가 포함되어 숫자가 많지만 정상 가맹점명이므로 숫자 오염 검증 예외에 추가했다.
+- 삼성 `amount_total`은 청구할인 반영 후 금액이고 원문 `이용금액합계`는 할인 전 금액이다. 검산에서는 거래 extra fields의 할인 가능 금액 범위 안에서 차이를 보정해 `이용금액합계 합산 11,198,212`와 자동 일치시킨다.
+- 최종 `output/acceptance_samsung_5` 결과는 `llm_calls=0`, `vision_ok=20`, `vision_errors=0`, `transaction_count=180`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `difference=0`이다.

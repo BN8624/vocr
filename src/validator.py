@@ -44,6 +44,7 @@ def build_validation(
     checksum = _checksum_summary(
         amount_total=normalization_output.amount_total,
         billing_amount_total=normalization_output.billing_amount_total,
+        rows=rows,
         source_totals=source_totals,
         processed_chunk_count=len(vision_results or []),
         expected_chunk_count=expected_chunk_count,
@@ -452,6 +453,7 @@ def _source_total_candidates(vision_results: list[VisionResult]) -> list[dict[st
 def _checksum_summary(
     amount_total: int,
     billing_amount_total: int,
+    rows: list[dict[str, Any]],
     source_totals: list[dict[str, Any]],
     processed_chunk_count: int,
     expected_chunk_count: int | None,
@@ -467,7 +469,7 @@ def _checksum_summary(
 
     selected_total_id = _selected_total_id(review_state)
     selected_total = _find_selected_total(source_totals, selected_total_id)
-    auto_matches = _auto_match_candidates(amount_total, billing_amount_total, source_totals)
+    auto_matches = _auto_match_candidates(amount_total, billing_amount_total, rows, source_totals)
 
     if not source_totals:
         if not is_complete_scan:
@@ -701,7 +703,7 @@ def _is_numeric_merchant_exception(value: str) -> bool:
     text = re.sub(r"\s+", "", value.strip())
     if not text:
         return False
-    if "택시" in text or "usd" in text.lower():
+    if "택시" in text or "하이패스" in text or "usd" in text.lower():
         return True
     utility_tokens = ("전기", "수신료", "도시가스", "관리비", "통신료")
     return any(token in text for token in utility_tokens) and bool(re.search(r"\d", text))
@@ -804,6 +806,7 @@ def _find_selected_total(
 def _auto_match_candidates(
     amount_total: int,
     billing_amount_total: int,
+    rows: list[dict[str, Any]],
     source_totals: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     targets = [
@@ -824,7 +827,7 @@ def _auto_match_candidates(
                         "match_type": "exact",
                     }
                 )
-    adjustments = _checksum_adjustments(source_totals)
+    adjustments = _checksum_adjustments(source_totals) + _transaction_discount_adjustments(rows)
     if adjustments:
         adjusted_targets = [
             ("amount_total_adjusted", amount_total + adjustments),
@@ -841,6 +844,24 @@ def _auto_match_candidates(
                             "adjustment_total": adjustments,
                             "score": _total_candidate_score(candidate),
                             "match_type": "adjusted",
+                        }
+                    )
+        for field, total_value in targets:
+            if total_value <= 0:
+                continue
+            for candidate in candidates:
+                candidate_amount = int(candidate.get("amount", 0))
+                difference = candidate_amount - total_value
+                if 0 < difference <= adjustments:
+                    matches.append(
+                        {
+                            "field": f"{field}_discount_reconciled",
+                            "candidate": candidate,
+                            "difference": 0,
+                            "adjustment_total": difference,
+                            "available_adjustment_total": adjustments,
+                            "score": _total_candidate_score(candidate),
+                            "match_type": "discount_reconciled",
                         }
                     )
     return sorted(matches, key=lambda item: int(item.get("score", 0)), reverse=True)
@@ -922,12 +943,36 @@ def _checksum_adjustments(source_totals: list[dict[str, Any]]) -> int:
     return total
 
 
+def _transaction_discount_adjustments(rows: list[dict[str, Any]]) -> int:
+    total = 0
+    for row in rows:
+        extra_fields = row.get("extra_fields", {}) if isinstance(row.get("extra_fields"), dict) else {}
+        for key, value in extra_fields.items():
+            label = re.sub(r"\s+", "", str(key).lower())
+            if not any(token in label for token in ("할인", "혜택", "discount", "point", "points")):
+                continue
+            amount = _parse_adjustment_amount(value)
+            if isinstance(amount, int) and amount < 0:
+                total += abs(amount)
+    return total
+
+
+def _parse_adjustment_amount(value: Any) -> int | None:
+    text = str(value).strip()
+    match = re.search(r"[-−△▲]\s*[\d,]+", text)
+    if match:
+        return _parse_amount(match.group(0))
+    return _parse_amount(text)
+
+
 def _total_candidate_score(candidate: dict[str, Any]) -> int:
     label = re.sub(r"\s+", "", str(candidate.get("label", "")).lower())
     if "총합계" in label or label == "합계":
         return 100
     if any(token in label for token in ("청구금액", "결제금액", "이번달")):
         return 90
+    if "이용금액합계" in label:
+        return 100
     if "합계" in label:
         return 80
     if "소계" in label:

@@ -81,8 +81,54 @@ def main() -> int:
         assert installment["normalization"].amount_total == 300000
         assert installment["normalization"].summary["invalid_date_excluded_count"] == 1
 
+        samsung = _samsung_billing_statement(root / "samsung")
+        samsung_fields = [column["suggested_field"] for column in samsung["mapping"].table_groups[0]["columns"]]
+        assert samsung_fields == ["date", "card_label", "merchant", "extra", "amount", "extra", "extra"]
+        assert samsung["mapping"].table_groups[0]["review_column_count"] == 0
+        assert samsung["normalization"].review_count == 0
+        transactions = _read_jsonl(samsung["normalization"].transactions_path)
+        assert transactions[0]["transaction"]["card_label"] == "본인 301"
+        assert transactions[0]["transaction"]["merchant"] == "춘시루"
+        assert transactions[0]["transaction"]["amount"] == 69650
+
     print("profile signature test passed")
     return 0
+
+
+def _samsung_billing_statement(root: Path) -> dict[str, object]:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    profiles_dir = root / "profiles"
+    output_dir.mkdir(parents=True)
+    profiles_dir.mkdir(parents=True)
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision(
+                ["이용일", "이용자", "가맹점명", "이용금액", "이 달에 입금하실 금액", "입금후", "비고"],
+                [
+                    ["02-04", "본인 301", "춘시루", "70,000", "69,650", "", "청구할인 -350"],
+                    ["02-05", "본인 301", "주식회사 테스트", "12,000", "12,000", "", ""],
+                ],
+            )
+        ],
+        chunks=[_chunk()],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping = build_mapping_suggestions(
+        merge_output=merge_output,
+        output_dir=output_dir,
+        profiles_dir=profiles_dir,
+    )
+    assert mapping is not None
+    normalization = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping,
+        merged_dir=merged_dir,
+    )
+    assert normalization is not None
+    return {"mapping": mapping, "normalization": normalization}
 
 
 def _installment_statement(root: Path) -> dict[str, object]:
@@ -176,6 +222,10 @@ def _write_profile(path: Path, header: list[str]) -> None:
         ],
     }
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
+def _read_jsonl(path: Path) -> list[dict[str, object]]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
 def _chunk() -> ChunkImage:

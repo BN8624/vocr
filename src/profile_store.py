@@ -439,10 +439,16 @@ def _repair_samsung_billing_statement_columns(columns: list[dict[str, Any]]) -> 
             _set_column_role(columns[index], "merchant", "high", "삼성카드 표의 이용처 열로 보정합니다.")
         elif "이용금액" in header:
             _set_column_role(columns[index], "extra", "medium", "삼성카드 표에서는 원거래 이용금액을 보조 원본 필드로 남깁니다.")
+        elif "이용일수" in header:
+            _set_column_role(columns[index], "extra", "medium", "이용일수는 거래 날짜가 아닌 기간 보조 필드입니다.")
+        elif "이자" in header or "수수료" in header:
+            _set_column_role(columns[index], "fee", "medium", "이자/수수료 열은 검산 기준 원금과 분리합니다.")
         elif "입금하실금액" in header:
             _set_column_role(columns[index], "amount", "high", "삼성카드 표의 이달 입금 금액을 검산 기준 금액으로 보정합니다.")
         elif header in {"입금후", "입금후남은금액", "비고", "적요", "결제종류"}:
             _set_column_role(columns[index], "extra", "medium", "검산 핵심 열이 아닌 보조 설명 필드로 보정합니다.")
+        elif "적립금액" in header:
+            _set_column_role(columns[index], "points", "medium", "포인트 적립 금액은 거래 이용금액과 분리합니다.")
         elif header == "금액" and index > 0 and any(token in headers[index - 1] for token in ("할인", "혜택", "상세")):
             _set_column_role(columns[index], "discount", "medium", "할인 설명 다음의 금액 열을 할인 금액으로 보정합니다.")
 

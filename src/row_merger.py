@@ -331,7 +331,10 @@ def _looks_like_overlap_duplicate(rows: list[dict[str, Any]]) -> bool:
     if any(index is None for index in indexes):
         return False
     unique_indexes = sorted({int(index) for index in indexes if index is not None})
-    return bool(unique_indexes) and unique_indexes[-1] - unique_indexes[0] <= 1
+    if not unique_indexes:
+        return False
+    span = unique_indexes[-1] - unique_indexes[0]
+    return span <= 1 or (span <= 2 and len(unique_indexes) >= 3)
 
 
 def _chunk_index(chunk_id: str) -> int | None:

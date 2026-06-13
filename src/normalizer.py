@@ -284,6 +284,12 @@ def _filter_auto_resolved_reasons(
             "M 포인트 사용 행" in reason or "이용금액을 숫자로 확정하지 못했습니다" in reason
         ):
             continue
+        if (
+            "Extra column data" in reason
+            and any(token in reason for token in ("할인", "적립", "points"))
+            and isinstance(transaction.get("amount"), int)
+        ):
+            continue
         filtered.append(reason)
     return filtered
 
