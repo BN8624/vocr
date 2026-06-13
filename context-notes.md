@@ -97,3 +97,11 @@
 - 신한카드_11은 전체 44개 Vision 캐시를 사용해 재실행했고 `llm_calls=0`, `vision_ok=44`, `normalization_review_count=0`, `validation_issue_row_count=0`까지 확인했다.
 - 신한카드_11에서는 0원으로 잘못 잡힌 부가경감·취소 행과 `377,176 / 40,000` 분할 표기 행을 원거래 금액 열 기준으로 보정했다.
 - 관련 테스트로 `python -X utf8 tests\test_profile_signature.py`, `python -X utf8 tests\test_validation_fixtures.py`, `python -X utf8 tests\test_checksum_selection.py`, `python -X utf8 tests\test_duplicate_representative.py`를 실행했고 모두 통과했다.
+
+## 2026-06-14 합계 자동 선택 보류 판단
+
+- 현대카드_8은 총합계 후보 합산 34,523,411과 거래 합계 34,210,388의 차이가 313,023이다.
+- 현대카드_8은 페이지 묶음별로 1-2쪽 9,605 부족, 3-4쪽 78,000 과다, 5-6쪽 0, 7-8쪽 381,418 부족으로 차이가 일관된 할인 조정 하나로 설명되지 않는다.
+- 삼성카드_7은 이용금액합계 계열 후보 합산 16,545,610과 거래 합계 16,388,134의 차이가 157,476이다.
+- 삼성카드_7은 원거래 이용금액 합계와 청구/입금 금액 합계가 섞여 있어 현재 검산 로직에서 자동 선택하면 조용한 오선택 위험이 있다.
+- 두 샘플 모두 행 리뷰와 검증 이슈는 0이지만, 합계 자동 선택은 추가 규칙 없이 확정하지 않는 것이 맞다.
