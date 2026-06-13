@@ -33,6 +33,12 @@ def main() -> int:
         assert utility is not None
         assert utility.issue_row_count == 0
 
+        invalid_date_row = _transaction("본인31*", "정상가맹점", 1000)
+        invalid_date_row["transaction"]["date"] = "2004-11-00"  # type: ignore[index]
+        invalid_date = _run_rows(temp_root / "invalid_date", [invalid_date_row])
+        assert invalid_date is not None
+        assert invalid_date.issue_row_count == 1
+
         benefit = _run_rows(temp_root / "benefit", [_benefit_transaction()])
         assert benefit is not None
         assert benefit.issue_row_count == 0

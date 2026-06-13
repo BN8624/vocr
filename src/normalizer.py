@@ -4,6 +4,7 @@ import json
 import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -37,11 +38,12 @@ def build_transactions(
 
     merged_dir.mkdir(parents=True, exist_ok=True)
     source_rows = _read_jsonl(merge_output.rows_merged_path)
-    rows = [row for row in source_rows if _should_normalize_row(row)]
+    exclusion_reasons = Counter(_row_exclusion_reason(row) for row in source_rows)
+    rows = [row for row in source_rows if not _row_exclusion_reason(row)]
     mapping_index = _mapping_index(mapping_output)
     transactions_all = [_normalize_row(row, mapping_index) for row in rows]
     transactions, normalized_duplicate_excluded = _exclude_normalized_duplicates(transactions_all)
-    duplicate_excluded_count = len(source_rows) - len(rows) + normalized_duplicate_excluded
+    duplicate_excluded_count = int(exclusion_reasons.get("duplicate_excluded", 0)) + normalized_duplicate_excluded
 
     transactions_path = merged_dir / "transactions.jsonl"
     summary_path = merged_dir / "normalization_summary.json"
@@ -62,6 +64,7 @@ def build_transactions(
         "transaction_count": len(transactions),
         "duplicate_excluded_count": duplicate_excluded_count,
         "normalized_duplicate_excluded_count": normalized_duplicate_excluded,
+        "invalid_date_excluded_count": int(exclusion_reasons.get("invalid_date", 0)),
         "review_count": len(review_rows),
         "amount_total": amount_total,
         "billing_amount_total": billing_total,
@@ -89,9 +92,20 @@ def build_transactions(
     )
 
 
-def _should_normalize_row(row: dict[str, Any]) -> bool:
+def _row_exclusion_reason(row: dict[str, Any]) -> str:
     merge = row.get("merge", {})
-    return str(merge.get("decision", "keep")) != "duplicate_excluded"
+    if str(merge.get("decision", "keep")) == "duplicate_excluded":
+        return "duplicate_excluded"
+    if _has_invalid_date_cell(row):
+        return "invalid_date"
+    return ""
+
+
+def _has_invalid_date_cell(row: dict[str, Any]) -> bool:
+    cells = [str(value).strip() for value in row.get("raw", {}).get("cells", [])]
+    if not cells or not cells[0]:
+        return False
+    return _looks_like_date_token(cells[0]) and not _is_valid_date_like(cells[0])
 
 
 def _exclude_normalized_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
@@ -355,18 +369,48 @@ def _amount_optional_transaction(transaction: dict[str, Any], cells: list[str]) 
 def _normalize_date(value: str) -> str:
     text = str(value).strip()
     match = re.fullmatch(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})", text)
-    if match:
+    if match and _valid_date_parts(*match.groups()):
         year, month, day = match.groups()
         return f"{year}-{int(month):02d}-{int(day):02d}"
     match = re.fullmatch(r"(\d{2})[./-](\d{1,2})[./-](\d{1,2})", text)
-    if match:
+    if match and _valid_date_parts(str(2000 + int(match.group(1))), match.group(2), match.group(3)):
         year, month, day = match.groups()
         return f"{2000 + int(year):04d}-{int(month):02d}-{int(day):02d}"
     match = re.fullmatch(r"(\d{1,2})[./-](\d{1,2})", text)
-    if match:
+    if match and _valid_date_parts("2000", *match.groups()):
         month, day = match.groups()
         return f"{int(month):02d}-{int(day):02d}"
     return text
+
+
+def _looks_like_date_token(value: str) -> bool:
+    return bool(
+        re.fullmatch(r"\d{1,2}[./-]\d{1,2}", value)
+        or re.fullmatch(r"\d{2}[./-]\d{1,2}[./-]\d{1,2}", value)
+        or re.fullmatch(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", value)
+    )
+
+
+def _is_valid_date_like(value: str) -> bool:
+    text = value.strip()
+    match = re.fullmatch(r"(\d{1,2})[./-](\d{1,2})", text)
+    if match:
+        return _valid_date_parts("2000", *match.groups())
+    match = re.fullmatch(r"(\d{2})[./-](\d{1,2})[./-](\d{1,2})", text)
+    if match:
+        return _valid_date_parts(str(2000 + int(match.group(1))), match.group(2), match.group(3))
+    match = re.fullmatch(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})", text)
+    if match:
+        return _valid_date_parts(*match.groups())
+    return False
+
+
+def _valid_date_parts(year: str, month: str, day: str) -> bool:
+    try:
+        date(int(year), int(month), int(day))
+    except ValueError:
+        return False
+    return True
 
 
 def _put_extra(

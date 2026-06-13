@@ -5,6 +5,7 @@ import re
 from hashlib import sha1
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -665,11 +666,24 @@ def _issue_label(code: str) -> str:
 
 def _is_date_like(value: str) -> bool:
     text = value.strip()
-    return bool(
-        re.fullmatch(r"\d{1,2}[./-]\d{1,2}", text)
-        or re.fullmatch(r"\d{2}[./-]\d{1,2}[./-]\d{1,2}", text)
-        or re.fullmatch(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", text)
-    )
+    match = re.fullmatch(r"(\d{1,2})[./-](\d{1,2})", text)
+    if match:
+        return _valid_date_parts("2000", *match.groups())
+    match = re.fullmatch(r"(\d{2})[./-](\d{1,2})[./-](\d{1,2})", text)
+    if match:
+        return _valid_date_parts(str(2000 + int(match.group(1))), match.group(2), match.group(3))
+    match = re.fullmatch(r"(\d{4})[./-](\d{1,2})[./-](\d{1,2})", text)
+    if match:
+        return _valid_date_parts(*match.groups())
+    return False
+
+
+def _valid_date_parts(year: str, month: str, day: str) -> bool:
+    try:
+        date(int(year), int(month), int(day))
+    except ValueError:
+        return False
+    return True
 
 
 def _mostly_numeric(value: str) -> bool:
@@ -797,8 +811,9 @@ def _auto_match_candidates(
         ("billing_amount_total", billing_amount_total),
     ]
     matches: list[dict[str, Any]] = []
+    candidates = source_totals + _aggregate_total_candidates(source_totals)
     for field, total_value in targets:
-        for candidate in source_totals:
+        for candidate in candidates:
             if int(candidate.get("amount", 0)) == total_value:
                 matches.append(
                     {
@@ -816,7 +831,7 @@ def _auto_match_candidates(
             ("billing_amount_total_adjusted", billing_amount_total + adjustments),
         ]
         for field, total_value in adjusted_targets:
-            for candidate in source_totals:
+            for candidate in candidates:
                 if int(candidate.get("amount", 0)) == total_value:
                     matches.append(
                         {
@@ -829,6 +844,54 @@ def _auto_match_candidates(
                         }
                     )
     return sorted(matches, key=lambda item: int(item.get("score", 0)), reverse=True)
+
+
+def _aggregate_total_candidates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    labels: dict[str, str] = {}
+    for candidate in source_totals:
+        label = str(candidate.get("label", "")).strip()
+        amount = candidate.get("amount")
+        if not label or not isinstance(amount, int):
+            continue
+        label_key = re.sub(r"\s+", "", label).lower()
+        if "합계" not in label_key:
+            continue
+        grouped[label_key].append(candidate)
+        labels.setdefault(label_key, label)
+
+    aggregates: list[dict[str, Any]] = []
+    for label_key, candidates in grouped.items():
+        pages = sorted({int(candidate.get("page", 0) or 0) for candidate in candidates})
+        if len(candidates) < 2 or len(pages) < 2:
+            continue
+        amount = sum(int(candidate["amount"]) for candidate in candidates)
+        chunk_ids = [str(candidate.get("chunk_id", "")) for candidate in candidates]
+        label = f"{labels[label_key]} 합산"
+        aggregates.append(
+            {
+                "id": _aggregate_total_id(label, amount, candidates),
+                "label": label,
+                "value_text": f"{amount:,}",
+                "amount": amount,
+                "chunk_id": "+".join(chunk_ids),
+                "page": pages[0],
+                "pages": pages,
+                "needs_review": False,
+                "review_reason": "",
+                "components": candidates,
+            }
+        )
+    return aggregates
+
+
+def _aggregate_total_id(label: str, amount: int, candidates: list[dict[str, Any]]) -> str:
+    parts = [
+        f"{candidate.get('page')}|{candidate.get('chunk_id')}|{candidate.get('label')}|{candidate.get('amount')}"
+        for candidate in candidates
+    ]
+    source = f"aggregate|{label}|{amount}|" + "|".join(parts)
+    return "total_" + sha1(source.encode("utf-8")).hexdigest()[:12]
 
 
 def _auto_selected_match(auto_matches: list[dict[str, Any]]) -> dict[str, Any] | None:

@@ -79,6 +79,7 @@ def main() -> int:
         assert installment["mapping"].table_groups[0]["review_column_count"] == 0
         assert installment["normalization"].review_count == 0
         assert installment["normalization"].amount_total == 300000
+        assert installment["normalization"].summary["invalid_date_excluded_count"] == 1
 
     print("profile signature test passed")
     return 0
@@ -96,6 +97,7 @@ def _installment_statement(root: Path) -> dict[str, object]:
                 ["이용일자", "이용카드", "이용가맹점", "이용금액", "할부기간/회차", "원금", "수수료(이자)", "구분", "금액", "결제 후 잔액"],
                 [
                     ["24.11.13", "본인31*", "애터미 주식회사", "294,400", "3/3", "98,100", "", "무이자", "", ""],
+                    ["04.11.00", "본인31*", "쿠판", "117,000", "5/4", "22,500", "", "무이자", "", "22,500"],
                     ["25.01.10", "본인31*", "전기요금", "", "", "178,830", "", "", "", ""],
                     ["25.01.23", "본인31*", "지방세입금1건", "247,480", "3/1", "23,070", "", "무이자", "-4,922", "164,800"],
                 ],

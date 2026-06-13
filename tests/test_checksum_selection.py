@@ -98,6 +98,29 @@ def main() -> int:
         assert adjusted.summary["checksum"]["matched_total"]["label"] == "총합계"
         assert adjusted.summary["checksum"]["matched_field"] == "amount_total_adjusted"
 
+        multi_page = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=300000,
+                billing_amount_total=0,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("총합계", 100000, page_number=1, chunk_id="page_001_chunk_03"),
+                _vision_total("총합계", 200000, page_number=2, chunk_id="page_002_chunk_03"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=2,
+        )
+        assert multi_page is not None
+        assert multi_page.checksum_status == "auto_selected_total_matched"
+        assert multi_page.summary["checksum"]["matched_total"]["label"] == "총합계 합산"
+        assert multi_page.summary["checksum"]["matched_total"]["pages"] == [1, 2]
+        assert multi_page.summary["checksum"]["matched_field"] == "amount_total"
+
     print("checksum selection test passed")
     return 0
 
@@ -119,16 +142,21 @@ def _transaction(amount: int) -> dict[str, object]:
     }
 
 
-def _vision_total(label: str, amount: int) -> VisionResult:
+def _vision_total(
+    label: str,
+    amount: int,
+    page_number: int = 1,
+    chunk_id: str = "page_001_chunk_01",
+) -> VisionResult:
     return VisionResult(
-        chunk_id="page_001_chunk_01",
-        page_number=1,
-        cache_path=Path("page_001_chunk_01.vision.json"),
+        chunk_id=chunk_id,
+        page_number=page_number,
+        cache_path=Path(f"{chunk_id}.vision.json"),
         status="cached",
         data={
             "schema_version": "1.0",
-            "page": 1,
-            "chunk_id": "page_001_chunk_01",
+            "page": page_number,
+            "chunk_id": chunk_id,
             "header": [],
             "rows": [],
             "totals": [
