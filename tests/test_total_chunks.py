@@ -76,6 +76,24 @@ def main() -> int:
         assert candidates[0]["chunk_id"] == "page_001_totals_01"
         assert candidates[0]["amount"] == 30000
 
+        filtered = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=30000,
+                billing_amount_total=0,
+                summary={},
+            ),
+            vision_results=[_point_usage_result()],
+            merged_dir=merged_dir,
+            expected_chunk_count=1,
+        )
+        assert filtered is not None
+        assert filtered.summary["checksum"]["status"] == "no_source_total"
+        assert filtered.summary["checksum"]["source_total_candidates"] == []
+
     print("total chunks test passed")
     return 0
 
@@ -121,6 +139,35 @@ def _total_result() -> VisionResult:
             "needs_review": False,
             "review_reason": "",
             "notes": "",
+        },
+        reused=True,
+    )
+
+
+def _point_usage_result() -> VisionResult:
+    return VisionResult(
+        chunk_id="page_001_totals_01",
+        page_number=1,
+        cache_path=Path("page_001_totals_01.vision.json"),
+        status="cached",
+        data={
+            "schema_version": "1.0",
+            "page": 1,
+            "chunk_id": "page_001_totals_01",
+            "header": [],
+            "rows": [],
+            "totals": [
+                {
+                    "label": "이마트(노브랜드등) M포인트사용 01.27",
+                    "value_text": "-2,000",
+                    "amount": -2000,
+                    "needs_review": False,
+                    "review_reason": "",
+                }
+            ],
+            "needs_review": False,
+            "review_reason": "",
+            "notes": "The document shows transaction-level point deductions rather than a grand summary total.",
         },
         reused=True,
     )

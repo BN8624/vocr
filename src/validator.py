@@ -156,7 +156,8 @@ def _validate_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]
         if not _is_date_like(date):
             issues[key].append(_issue("date_not_date_like", f"날짜처럼 보이지 않습니다: {date or '(비어 있음)'}"))
         if not isinstance(amount, int):
-            issues[key].append(_issue("amount_not_numeric", "이용금액이 숫자가 아닙니다."))
+            if not _is_benefit_only_row(transaction, cells):
+                issues[key].append(_issue("amount_not_numeric", "이용금액이 숫자가 아닙니다."))
         elif amount == 0:
             issues[key].append(_issue("amount_zero", "이용금액이 0입니다. 실제 0원 거래인지 확인이 필요합니다."))
         elif abs(amount) > 100_000_000:
@@ -422,6 +423,8 @@ def _source_total_candidates(vision_results: list[VisionResult]) -> list[dict[st
             if amount is None:
                 continue
             label = str(total.get("label", "") or total.get("value_text", "") or "원본 합계")
+            if not _is_probable_source_total(label, total):
+                continue
             key = (label, amount)
             if key in seen:
                 continue
@@ -648,6 +651,8 @@ def _is_date_like(value: str) -> bool:
 
 
 def _mostly_numeric(value: str) -> bool:
+    if _is_numeric_merchant_exception(value):
+        return False
     compact = re.sub(r"\s+", "", value)
     if not compact:
         return False
@@ -656,12 +661,53 @@ def _mostly_numeric(value: str) -> bool:
     return digits >= 3 and digits > letters
 
 
+def _is_numeric_merchant_exception(value: str) -> bool:
+    text = re.sub(r"\s+", "", value.strip())
+    if not text:
+        return False
+    return "택시" in text
+
+
+def _is_benefit_only_row(transaction: dict[str, Any], cells: list[str]) -> bool:
+    merchant = str(transaction.get("merchant", "")).strip()
+    amount = transaction.get("amount")
+    billing_amount = transaction.get("billing_amount")
+    if amount is not None or billing_amount is not None:
+        return False
+    benefit_keywords = ("포인트사용", "포인트", "할인", "적립", "캐시백")
+    if not any(keyword in merchant for keyword in benefit_keywords):
+        return False
+    return any(_parse_amount(cell) is not None for cell in cells)
+
+
 def _looks_like_merchant(value: str) -> bool:
     text = value.strip()
+    if _looks_like_card_label(text):
+        return False
     if len(text) >= 18 and re.search(r"[가-힣A-Za-z]", text):
         return True
     merchant_tokens = ("주식회사", "(주)", "쿠팡", "네이버", "페이", "마트", "주유", "식당")
     return any(token in text for token in merchant_tokens)
+
+
+def _looks_like_card_label(value: str) -> bool:
+    text = re.sub(r"\s+", " ", value.strip()).lower()
+    if not text:
+        return False
+    card_keywords = (
+        "카드",
+        "본인",
+        "가족",
+        "법인",
+        "개인",
+        "zero",
+        "purple",
+        "red",
+        "green",
+        "point",
+        "포인트",
+    )
+    return any(keyword in text for keyword in card_keywords)
 
 
 def _parse_amount(value: Any) -> int | None:
@@ -719,6 +765,44 @@ def _auto_match_candidates(
                     }
                 )
     return matches
+
+
+def _is_probable_source_total(label: str, total: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(value)
+        for value in (label, total.get("context", ""), total.get("review_reason", ""))
+        if value
+    )
+    normalized = re.sub(r"\s+", "", text).lower()
+    total_keywords = (
+        "합계",
+        "총액",
+        "청구금액",
+        "결제금액",
+        "이용금액",
+        "이번달",
+        "이번달결제",
+        "이번달청구",
+        "total",
+        "sum",
+        "amountdue",
+        "balance",
+    )
+    if any(keyword in normalized for keyword in total_keywords):
+        return True
+
+    row_like_keywords = (
+        "포인트사용",
+        "m포인트",
+        "포인트",
+        "할인",
+        "적립",
+        "캐시백",
+    )
+    has_date = bool(re.search(r"\b\d{1,2}[./-]\d{1,2}\b", text))
+    if has_date and any(keyword in normalized for keyword in row_like_keywords):
+        return False
+    return not has_date
 
 
 def _row_key(row: dict[str, Any]) -> str:
