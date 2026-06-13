@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections import defaultdict
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -33,13 +32,8 @@ def build_review_html(
     review_path = output_dir / "review.html"
     title = str(config.get("html_title", "Card Statement Review"))
 
-    chunks_by_page: dict[int, list[ChunkImage]] = defaultdict(list)
-    for chunk in chunks:
-        chunks_by_page[chunk.page_number].append(chunk)
-
-    vision_by_chunk = {result.chunk_id: result for result in vision_results or []}
-    vision_ok = sum(1 for result in vision_by_chunk.values() if result.data is not None)
-    vision_errors = sum(1 for result in vision_by_chunk.values() if result.status == "error")
+    vision_ok = sum(1 for result in vision_results or [] if result.data is not None)
+    vision_errors = sum(1 for result in vision_results or [] if result.status == "error")
 
     html = [
         f"<h1>{escape(title)}</h1>",
@@ -53,7 +47,6 @@ def build_review_html(
             mapping_output,
             validation_output,
             excel_output,
-            len(pages),
             has_advanced=bool(merge_output or normalization_output),
         ),
     ]
@@ -78,64 +71,6 @@ def build_review_html(
             "</section>"
         )
 
-    page_sections = []
-    for page in pages:
-        page_src = _relative_src(review_path, page.image_path)
-        page_chunks = chunks_by_page.get(page.page_number, [])
-        crop_ratios = _page_crop_ratios(page, page_chunks)
-        page_sections.extend(
-            [
-                '<details class="page-section">',
-                f"<summary>{escape(page.page_id)} 원본/청크 보기</summary>",
-                '<div class="page-grid">',
-                '<figure class="page-image">',
-                f'<div class="page-image-wrap" data-page-number="{page.page_number}">',
-                f'<img src="{escape(page_src)}" alt="{escape(page.page_id)}">',
-                _page_crop_overlay(crop_ratios),
-                "</div>",
-                "<figcaption>",
-                f"{page.width} x {page.height}px, {page.dpi} DPI",
-                " 캐시 사용" if page.reused else " 새로 생성",
-                "</figcaption>",
-                _page_crop_controls(review_path, page, crop_ratios),
-                "</figure>",
-                '<div class="chunks">',
-            ]
-            )
-
-        for chunk in page_chunks:
-            chunk_src = _relative_src(review_path, chunk.image_path)
-            vision = vision_by_chunk.get(chunk.chunk_id)
-            page_sections.extend(
-                [
-                    '<article class="chunk">',
-                    f"<h3>{escape(chunk.chunk_id)}</h3>",
-                    f'<img src="{escape(chunk_src)}" alt="{escape(chunk.chunk_id)}">',
-                    f'<p class="chunk-action"><a class="file-link" href="{escape(chunk_src)}" target="_blank">원본 청크 크게 보기</a></p>',
-                    '<dl class="meta">',
-                    "<dt>본문 위치</dt>",
-                    f"<dd>y {chunk.source_y_start} to {chunk.source_y_end}</dd>",
-                    "<dt>헤더 위치</dt>",
-                    f"<dd>y {chunk.header_y_start} to {chunk.header_y_end}</dd>",
-                    "<dt>상태</dt>",
-                    f"<dd>{'캐시 사용' if chunk.reused else '새로 생성'}</dd>",
-                    "</dl>",
-                    _vision_block(review_path, vision, merge_output),
-                    "</article>",
-                ]
-            )
-
-        page_sections.extend(["</div>", "</div>", "</details>"])
-
-    if page_sections:
-        html.append(
-            '<section id="pages" class="pages-panel workflow-panel">'
-            "<h2>원본 페이지 확인</h2>"
-            '<p class="note">표가 잘렸거나 위치 판단이 필요할 때만 펼쳐서 확인하세요.</p>'
-            f"{''.join(page_sections)}"
-            "</section>"
-        )
-
     review_path.write_text(
         _render_template(
             title=title,
@@ -152,7 +87,6 @@ def _review_tasks_block(
     mapping_output: MappingOutput | None,
     validation_output: ValidationOutput | None,
     excel_output: ExcelExportOutput | None,
-    page_count: int,
     has_advanced: bool = False,
 ) -> str:
     mapping_review_count = _mapping_review_count(mapping_output)
@@ -211,16 +145,6 @@ def _review_tasks_block(
             )
         )
         step_number += 1
-    tasks.append(
-        _task_item(
-            number=step_number,
-            title="원본 위치",
-            status=f"{page_count}페이지, 필요할 때만",
-            href="#pages",
-            tone="idle",
-        )
-    )
-    step_number += 1
     if has_advanced:
         tasks.append(
             _task_item(

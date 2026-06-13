@@ -14,7 +14,7 @@
     no_source_total: '원본 합계 없음',
     incomplete_source_scan: '합계 확인 미완료'
   };
-  const workflowOrder = ['mapping', 'validation', 'excel', 'pages', 'advanced'];
+  const workflowOrder = ['mapping', 'validation', 'excel', 'advanced'];
   const workflowPanels = new Map(
     workflowOrder
       .map(id => [id, document.getElementById(id)])

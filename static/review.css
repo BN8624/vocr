@@ -261,8 +261,7 @@ h3 {
 .excel-stats {
   margin-bottom: 10px;
 }
-.advanced-output,
-.pages-panel {
+.advanced-output {
   margin-top: 0;
 }
 .advanced-output > summary {

@@ -86,9 +86,8 @@ def main() -> int:
             input_pdf=root / "sample.pdf",
         )
         html = review_path.read_text(encoding="utf-8")
-        assert 'class="crop-overlay"' in html
-        assert 'data-overlay-field="body_start_ratio"' in html
-        assert 'style="top: 30%"' in html
+        assert "원본 페이지 확인" not in html
+        assert "data-workflow-target=\"pages\"" not in html
 
         _assert_server_saves_crop_profile(root)
 
