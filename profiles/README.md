@@ -25,3 +25,14 @@ python main.py --input samples/card.pdf --output output --dry-run --mapping-prof
 ```
 
 Saved profiles are hints. Raw cells are still preserved, and validation still marks suspicious rows for review.
+
+## Manage Profiles
+
+Use the local profile manager when saved JSON files start to pile up:
+
+```bash
+python profile_manager.py list
+python profile_manager.py show mapping-profile.json
+python profile_manager.py rename mapping-profile.json samsung-business
+python profile_manager.py delete samsung-business.json --yes
+```

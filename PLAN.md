@@ -40,6 +40,7 @@ Implemented:
 - Phase 7G: visual crop overlays on page images for header/body/summary slider positions
 - Phase 7H: sample PDF regression report for page/chunk/review output checks
 - Phase 8: Excel export to `result.xlsx`
+- Utility: `profile_manager.py` for listing, inspecting, renaming, and deleting local mapping profiles
 
 Generated Excel sheets:
 
@@ -193,6 +194,7 @@ Implemented checks include:
 - page-level crop profiles can adjust header/body/summary ratios for difficult pages without changing global config
 - crop sliders update colored overlay lines on the page image before rerunning extraction
 - `tests/regression_samples.py` runs local sample PDFs and writes JSON/Markdown regression reports under `output/`
+- `profile_manager.py` helps manage ignored local `profiles/*.json` files without committing user data
 
 Checksum status meanings:
 
@@ -252,4 +254,4 @@ Good next improvements:
 
 1. Add more validation tests with tiny fixture JSONL files.
 2. Split `review_builder.py` into template/static assets once behavior stabilizes.
-3. Add a small profile management CLI for listing/removing saved profiles.
+3. Add Excel regeneration from the review server after checksum or mapping changes.

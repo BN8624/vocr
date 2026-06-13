@@ -169,6 +169,22 @@ Excel 시트:
 
 저장한 값은 다음 실행부터 적용됩니다. 이미 만들어진 청크 이미지와 Vision 캐시를 새 비율로 다시 만들려면 같은 명령에 `--force --force-vision`을 붙여 실행하세요.
 
+## 매핑 프로필 관리
+
+저장된 매핑 프로필 목록을 보려면:
+
+```bash
+python profile_manager.py list
+```
+
+상세 확인, 이름 변경, 삭제도 가능합니다.
+
+```bash
+python profile_manager.py show mapping-profile.json
+python profile_manager.py rename mapping-profile.json samsung-business
+python profile_manager.py delete samsung-business.json --yes
+```
+
 ## 견본 테스트
 
 견본 PDF 파일명 끝의 숫자는 기대 페이지 수입니다. 예를 들어 `삼성카드_3.pdf`는 3페이지여야 합니다.
