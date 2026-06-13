@@ -22,20 +22,21 @@ The goal is no longer "make a page where a person reviews many rows."
 The current goal is:
 
 ```text
-Automatically convert the local 3 issuers x single/three/multi-page statement samples to Excel.
+Automatically convert the local staged Korean card statement samples to Excel, starting with the three 1-page samples.
 ```
 
 The local acceptance PDFs are currently stored in `견본/` and are intentionally ignored by Git. They are the first acceptance set, not casual examples:
 
 ```text
 삼성카드_1.pdf
-삼성카드_3.pdf
+삼성카드_2.pdf
+삼성카드_5.pdf
 삼성카드_7.pdf
 신한카드_1.pdf
-신한카드_3.pdf
 신한카드_11.pdf
+신한카드_3.pdf
 현대카드_1.pdf
-현대카드_3.pdf
+현대카드_2.pdf
 현대카드_8.pdf
 ```
 
@@ -60,6 +61,14 @@ The dry-run command remains useful for page rendering, chunking, and HTML struct
 ```bash
 python tests/regression_samples.py
 ```
+
+First real API target:
+
+```text
+현대카드_1.pdf
+```
+
+The configured Vision model is `gemini-3.1-flash-lite` in `config.yaml`.
 
 Each acceptance sample should produce:
 
@@ -185,6 +194,34 @@ Dry-run without external Vision calls:
 ```bash
 python main.py --input "견본\삼성카드_1.pdf" --output output/samsung_1 --dry-run
 ```
+
+## One API Call, Then Cache-Only Testing
+
+For the first acceptance target, run the real API once on the PC:
+
+```bash
+python main.py --input "견본\현대카드_1.pdf" --output output\acceptance_hyundai_1 --force --force-vision
+```
+
+That sends the generated chunk images to Gemini once and writes successful responses as:
+
+```text
+output/acceptance_hyundai_1/cache/*.vision.json
+```
+
+After the API call, check whether every body chunk and total chunk has a successful cache file:
+
+```bash
+python tools/check_vision_cache.py --output output\acceptance_hyundai_1 --write-report
+```
+
+If it says `Ready for cache-only tests: yes`, downstream work can be repeated without calling the API:
+
+```bash
+python main.py --input "견본\현대카드_1.pdf" --output output\acceptance_hyundai_1 --dry-run
+```
+
+If the cache checker reports `.vision.error.json` files, the previous API attempt failed for those chunks and the real API command must be run again.
 
 ## Review Server
 

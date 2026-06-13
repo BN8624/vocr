@@ -2,7 +2,7 @@
 
 지금부터 vocr의 목표는 이렇게 잡아야 합니다.
 
-> **프로젝트 폴더에 있는 3개 카드사의 1장 / 3장 / 여러 장 명세서를 전부 자동으로 Excel 변환한다.**
+> **프로젝트 폴더에 있는 3개 카드사의 로컬 명세서를 1장부터 시작해 여러 장 샘플까지 자동으로 Excel 변환한다.**
 
 그리고 `review.html`은 “사람이 많이 검토하는 화면”이 아니라 **자동 변환 실패 원인을 찾는 디버그 화면**이어야 합니다. GitHub README도 현재 흐름을 `PDF 이미지화 → 청크 생성 → Vision LLM JSON 추출 → 행 병합 → 열 매핑 → 정규화 → 검증 → Excel export`로 잡고 있고, `result.xlsx`, `review.html`, 검증 결과, 매핑 프로필 재사용까지 이미 구현 대상으로 명시되어 있습니다. ([GitHub][1]) 또 README에는 견본 PDF 파일명 끝 숫자를 기대 페이지 수로 보고 `tests/regression_samples.py`로 전체 견본 회귀 리포트를 남기는 구조가 설명되어 있습니다. ([GitHub][1])
 
@@ -23,21 +23,21 @@ vocr의 목표는 “사람이 검토해서 고치는 카드 명세서 변환기
 ```text
 카드사 A:
   1장 명세서
-  3장 명세서
+  2장 또는 3장 명세서
   여러 장 명세서
 
 카드사 B:
   1장 명세서
-  3장 명세서
+  2장 또는 3장 명세서
   여러 장 명세서
 
 카드사 C:
   1장 명세서
-  3장 명세서
+  2장 또는 3장 명세서
   여러 장 명세서
 ```
 
-이 9개 샘플은 단순 테스트 자료가 아니라 vocr의 1차 합격 기준이다.
+이 로컬 견본 샘플은 단순 테스트 자료가 아니라 vocr의 1차 합격 기준이다.
 
 ---
 
@@ -132,7 +132,7 @@ needs_review 30% 이상:
 1차 목표:
 
 ```text
-9개 샘플 전부 result.xlsx 자동 생성
+현재 로컬 견본 샘플 전부 result.xlsx 자동 생성
 blocked 샘플 0개
 hard_review_rate <= 5%
 manual_review_rate <= 15%
@@ -155,7 +155,7 @@ silent_error_count == 0
 
 ---
 
-# 3. P0: 9개 샘플을 acceptance set으로 고정
+# 3. P0: 로컬 견본 샘플을 acceptance set으로 고정
 
 ## P0-1. 샘플 목록 자동 인식
 
@@ -173,14 +173,15 @@ samples/
 
 ```text
 삼성카드_1.pdf
-삼성카드_3.pdf
-삼성카드_여러장.pdf
+삼성카드_2.pdf
+삼성카드_5.pdf
+삼성카드_7.pdf
 신한카드_1.pdf
 신한카드_3.pdf
-신한카드_여러장.pdf
+신한카드_11.pdf
 현대카드_1.pdf
-현대카드_3.pdf
-현대카드_여러장.pdf
+현대카드_2.pdf
+현대카드_8.pdf
 ```
 
 숫자가 있는 파일은 기대 페이지 수로 사용한다.
@@ -212,11 +213,11 @@ samples/sample_manifest.json
     "sample_type": "single_page"
   },
   {
-    "sample_id": "samsung_3",
+    "sample_id": "samsung_2",
     "issuer": "samsung",
-    "path": "samples/삼성카드_3.pdf",
-    "expected_pages": 3,
-    "sample_type": "three_pages"
+    "path": "samples/삼성카드_2.pdf",
+    "expected_pages": 2,
+    "sample_type": "two_pages"
   },
   {
     "sample_id": "samsung_multi",
@@ -248,7 +249,7 @@ python tools/build_sample_manifest.py --samples samples --output samples/sample_
 
 ## P0-3. regression_samples.py를 acceptance runner로 강화
 
-`tests/regression_samples.py`는 단순 smoke test가 아니라 9개 샘플 자동 변환 합격 판정기로 바꾼다.
+`tests/regression_samples.py`는 단순 smoke test가 아니라 로컬 견본 샘플 자동 변환 합격 판정기로 바꾼다.
 
 실행 명령:
 
@@ -279,11 +280,11 @@ output/regression_samples/sample_regression_report.md
 
 ```json
 {
-  "sample_id": "samsung_3",
+  "sample_id": "samsung_2",
   "issuer": "samsung",
-  "path": "samples/삼성카드_3.pdf",
-  "expected_pages": 3,
-  "actual_pages": 3,
+  "path": "samples/삼성카드_2.pdf",
+  "expected_pages": 2,
+  "actual_pages": 2,
   "page_count_status": "matched",
   "chunk_count": 12,
   "vision_success_count": 12,
@@ -310,7 +311,7 @@ output/regression_samples/sample_regression_report.md
 
 ## P0-5. 전체 합격 기준
 
-9개 샘플 전체에 대해 다음 조건을 만족해야 한다.
+로컬 견본 샘플 전체에 대해 다음 조건을 만족해야 한다.
 
 ```text
 모든 PDF 페이지 렌더링 성공
@@ -440,7 +441,7 @@ blocked:
 
 ## 7-1. 목표
 
-3개 카드사의 1장 / 3장 / 여러 장 명세서는 반복 양식이다.
+3개 카드사의 1장 / 2장 또는 3장 / 여러 장 명세서는 반복 양식이다.
 
 따라서 한 번 안정화된 카드사 양식은 다음 실행부터 자동으로 처리되어야 한다.
 
@@ -488,7 +489,7 @@ blocked:
 
 ```text
 같은 카드사의 1장 샘플 통과
-같은 카드사의 3장 샘플 통과
+같은 카드사의 2장 또는 3장 샘플 통과
 같은 카드사의 여러 장 샘플 통과
 blocked row 0개
 hard_review_rate <= 3%
@@ -747,7 +748,7 @@ TEST_REPORT.md
 샘플 수
 카드사 수
 1장 샘플 결과
-3장 샘플 결과
+2장/3장 샘플 결과
 여러 장 샘플 결과
 auto_accept_rate 평균
 manual_review_rate 평균
@@ -774,7 +775,7 @@ python tests/regression_samples.py --with-vision
 
 ```text
 3개 카드사 전체 샘플 인식
-1장 / 3장 / 여러 장 샘플 구분
+1장 / 2장 또는 3장 / 여러 장 샘플 구분
 모든 샘플 result.xlsx 자동 생성
 모든 샘플 review.html 자동 생성
 모든 샘플 automation_summary.json 생성
@@ -809,7 +810,7 @@ Vision 프롬프트만 고치고 측정 없이 감으로 판단
 
 ```text
 1. samples/sample_manifest.json 생성 도구 추가
-2. regression_samples.py를 9개 샘플 acceptance runner로 강화
+2. regression_samples.py를 로컬 견본 acceptance runner로 강화
 3. automation_summary.json 추가
 4. row_status / confidence_score / risk_level 추가
 5. 카드사별 stable profile 승격 기준 추가
@@ -823,6 +824,6 @@ Vision 프롬프트만 고치고 측정 없이 감으로 판단
 
 가장 먼저 할 일은 변환 알고리즘 수정이 아니다.
 
-가장 먼저 할 일은 현재 프로젝트 폴더의 3개 카드사 × 1장/3장/여러 장 샘플이 자동으로 통과하는지, 실패한다면 어느 단계에서 실패하는지 숫자로 드러내는 것이다.
+가장 먼저 할 일은 현재 프로젝트 폴더의 3개 카드사 견본이 1장부터 단계적으로 자동 통과하는지, 실패한다면 어느 단계에서 실패하는지 숫자로 드러내는 것이다.
 
 [1]: https://github.com/BN8624/vocr "GitHub - BN8624/vocr · GitHub"

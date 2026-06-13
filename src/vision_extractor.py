@@ -135,8 +135,8 @@ def load_cached_vision_results(chunks: list[ChunkImage], cache_dir: Path) -> lis
     results: list[VisionResult] = []
     for chunk in chunks:
         cache_path = cache_dir / f"{chunk.chunk_id}.vision.json"
-        error_path = cache_dir / f"{chunk.chunk_id}.error.json"
-        raw_text_path = cache_dir / f"{chunk.chunk_id}.invalid.txt"
+        error_path = cache_path.with_suffix(".error.json")
+        raw_text_path = cache_path.with_suffix(".invalid.txt")
 
         if cache_path.exists():
             results.append(

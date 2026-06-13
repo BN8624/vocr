@@ -22,6 +22,7 @@ python tests/test_profile_manager.py
 python tests/test_total_chunks.py
 python tests/regression_samples.py
 python tests/test_sample_manifest.py
+python tests/test_vision_cache_check.py
 python tests/regression_samples.py --samples-dir 견본 --issuer 현대카드 --pages 1 --limit 1 --output output/first_hyundai_1_dry_run
 ```
 
@@ -37,13 +38,14 @@ Current detected samples:
 
 ```text
 삼성카드_1.pdf
-삼성카드_3.pdf
+삼성카드_2.pdf
+삼성카드_5.pdf
 삼성카드_7.pdf
 신한카드_1.pdf
-신한카드_3.pdf
 신한카드_11.pdf
+신한카드_3.pdf
 현대카드_1.pdf
-현대카드_3.pdf
+현대카드_2.pdf
 현대카드_8.pdf
 ```
 
@@ -96,7 +98,7 @@ change from previous run
 ## Current Status
 
 ```text
-sample_count: 9 local PDFs
+sample_count: 10 local PDFs
 issuer_count: 3
 automation_summary coverage: PLANNED
 auto_accept_rate average: not measured
@@ -134,7 +136,20 @@ rows extracted: 0
 transaction_count: 0
 ```
 
-Running the same command with external Gemini access requires explicit approval because statement chunk images are sent to Google Gemini.
+Running the same command with external Gemini access must be done by the user locally because statement chunk images are sent to Google Gemini.
+
+Current cache check:
+
+```text
+command: python tools/check_vision_cache.py --output output\acceptance_hyundai_1
+result: not ready
+expected chunks: 4
+cached Vision JSON: 0
+error cache files: 4
+missing cache files: 0
+```
+
+After the user runs the real API command once, `tools/check_vision_cache.py` should report `Ready for cache-only tests: yes`.
 
 ## Next Required Test Milestone
 

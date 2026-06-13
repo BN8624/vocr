@@ -6,8 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from tools.build_sample_manifest import build_manifest, parse_sample_name, sample_type
 from tests.regression_samples import sample_issuer
+from tools.build_sample_manifest import build_manifest, parse_sample_name, sample_type
 
 
 def main() -> int:

@@ -7,7 +7,7 @@ Build a local Python tool that automatically converts image-based Korean credit 
 The current acceptance target is:
 
 ```text
-3 issuers x single-page / three-page / multi-page local statement samples
+3 issuers x staged local statement samples
 -> automatic Vision-first extraction
 -> validation and automation scoring
 -> result.xlsx
@@ -64,21 +64,21 @@ The first reliable deliverable is automatic Excel conversion across the acceptan
 
 The local acceptance PDFs are ignored by Git and currently live in `견본/`.
 
-The intended P0 acceptance set is:
+The intended P0 acceptance set is staged by page count:
 
 ```text
 3 issuers
 1-page sample per issuer
-3-page sample per issuer
-multi-page sample per issuer
+then available 2-page/3-page samples
+then available multi-page samples
 ```
 
 The current local filenames are:
 
 ```text
-삼성카드_1.pdf, 삼성카드_3.pdf, 삼성카드_7.pdf
+삼성카드_1.pdf, 삼성카드_2.pdf, 삼성카드_5.pdf, 삼성카드_7.pdf
 신한카드_1.pdf, 신한카드_3.pdf, 신한카드_11.pdf
-현대카드_1.pdf, 현대카드_3.pdf, 현대카드_8.pdf
+현대카드_1.pdf, 현대카드_2.pdf, 현대카드_8.pdf
 ```
 
 P0 should standardize sample discovery through `samples/sample_manifest.json`, but implementation must respect the current local `견본/` acceptance set until the manifest workflow is complete.
