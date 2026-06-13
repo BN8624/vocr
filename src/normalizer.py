@@ -517,7 +517,19 @@ def _filter_auto_resolved_reasons(
     filtered: list[str] = []
     for reason in reasons:
         if _is_samsung_repaired_shape(cells) and isinstance(transaction.get("amount"), int):
-            if any(token in reason for token in ("col_4", "col_8", "col_9", "col_11", "amount ", "merchant ")):
+            if any(
+                token in reason
+                for token in (
+                    "col_4",
+                    "col_7",
+                    "col_8",
+                    "col_9",
+                    "col_11",
+                    "amount ",
+                    "merchant ",
+                    "열 매핑 확인 필요",
+                )
+            ):
                 continue
         if _is_shinhan_amount_shape(cells) and isinstance(transaction.get("amount"), int):
             if any(token in reason for token in ("col_4", "col_6", "col_8", "col_10", "amount ", "Amount split", "Multiple entries", "dup_")):

@@ -17,6 +17,8 @@
 - 현대카드_8의 `page_007_chunk_03` 캐시에는 Vision이 `page=1`, `chunk_id=page_001_chunk_01`로 잘못 응답했다. 청크 메타데이터가 정답이므로 캐시 로드와 신규 응답 모두에서 page/chunk_id를 청크 기준으로 덮어쓴다.
 - 현대카드_8의 `이용일 이용카드` 결합 헤더 행은 포인트 숫자를 amount로 오인했다. 해당 형태는 위치 기반으로 `date/card_label/merchant/amount/billing_amount`를 복원한다.
 - 현대카드_8 재실행 결과 `llm_calls=0`, `transaction_count=295`, `validation_issue_row_count=0`, 페이지 묶음 차이는 `-10,000`, `+78,000`, `0`, `-19,020`으로 줄었지만 아직 자동 선택할 수 없다.
+- 삼성카드_7은 `page_006_chunk_03` 캐시 1건을 삭제하고 새 `body_end_ratio=0.98` 청크로 재호출했다. 누락됐던 `05-12 지에스칼텍스(주)봄내주유소 98,116 / 93,796 / -4,320` 행이 복구됐다.
+- 삼성카드_7 최종 재실행 결과는 `transaction_count=245`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`다.
 
 ## 2026-06-13 현대카드_1 정확도 개선
 
