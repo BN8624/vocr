@@ -23,6 +23,7 @@ python tests/test_total_chunks.py
 python tests/regression_samples.py
 python tests/test_sample_manifest.py
 python tests/test_vision_cache_check.py
+python tests/test_excel_exporter.py
 python tests/regression_samples.py --samples-dir 견본 --issuer 현대카드 --pages 1 --limit 1 --output output/first_hyundai_1_dry_run
 ```
 
@@ -142,14 +143,47 @@ Current cache check:
 
 ```text
 command: python tools/check_vision_cache.py --output output\acceptance_hyundai_1
-result: not ready
+previous result: not ready under sandbox API failure
 expected chunks: 4
 cached Vision JSON: 0
 error cache files: 4
 missing cache files: 0
 ```
 
-After the user runs the real API command once, `tools/check_vision_cache.py` should report `Ready for cache-only tests: yes`.
+After the user ran the real API command locally:
+
+```text
+command: python tools/check_vision_cache.py --output output\acceptance_hyundai_1
+result: ready
+expected chunks: 4
+cached Vision JSON: 4
+error cache files: 0
+missing cache files: 0
+```
+
+Cached downstream run:
+
+```text
+command: python main.py --input "견본\현대카드_1.pdf" --output output\acceptance_hyundai_1 --dry-run
+result: PASS, no API calls
+vision_ok: 4
+vision_errors: 0
+raw_row_count: 64
+transaction_count: 64
+validation_issue_row_count: 27
+checksum_status: no_user_total_selected
+Excel sheets: 전체명세, 검산, 원본셀, 추가필드, 확인필요
+```
+
+Current acceptance judgment:
+
+```text
+pipeline execution: PASS
+cache reuse: PASS
+Excel creation: PASS
+automation quality: FAIL
+reason: review/validation issue count is still high and source total selection is not reliable
+```
 
 ## Next Required Test Milestone
 

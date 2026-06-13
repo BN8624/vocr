@@ -218,7 +218,7 @@ def _write_extra_fields(sheet: Any, rows: list[dict[str, Any]]) -> None:
                         source.get("chunk_id", ""),
                         source.get("local_row_index", ""),
                         key,
-                        item,
+                        _excel_value(item),
                     ]
                 )
 
@@ -237,8 +237,8 @@ def _write_review_rows(sheet: Any, rows: list[dict[str, Any]], summary: dict[str
                     issue.get("code", ""),
                     issue.get("field", ""),
                     issue.get("message", ""),
-                    issue.get("value", ""),
-                    issue.get("threshold", ""),
+                    _excel_value(issue.get("value", "")),
+                    _excel_value(issue.get("threshold", "")),
                     " | ".join(str(value) for value in issue.get("header", [])),
                 ]
             )
@@ -352,6 +352,14 @@ def _safe_table_name(sheet_name: str) -> str:
 
 def _number_or_blank(value: Any) -> int | str:
     return value if isinstance(value, int) else ""
+
+
+def _excel_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
 
 
 def _dict(value: Any) -> dict[str, Any]:
