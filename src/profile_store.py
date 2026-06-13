@@ -278,6 +278,7 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
         )
 
     _repair_shifted_card_statement_columns(columns)
+    _repair_installment_statement_columns(columns)
     _mark_review_columns(columns)
 
     group = {
@@ -371,6 +372,57 @@ def _repair_shifted_card_statement_columns(columns: list[dict[str, Any]]) -> Non
         columns[index]["suggested_field"] = field
         columns[index]["confidence"] = confidence
         columns[index]["reason"] = reason
+
+
+def _repair_installment_statement_columns(columns: list[dict[str, Any]]) -> None:
+    headers = [_norm(str(column.get("header", ""))) for column in columns]
+    joined = "|".join(headers)
+    if "할부" not in joined or "이용금액" not in joined:
+        return
+
+    principal_indexes = [
+        index
+        for index, header in enumerate(headers)
+        if "원금" in header and "결제후" not in header and "잔액" not in header
+    ]
+    if not principal_indexes:
+        return
+
+    for index, header in enumerate(headers):
+        if "이용금액" in header:
+            _set_column_role(
+                columns[index],
+                "extra",
+                "medium",
+                "할부 청구 표에서는 원거래 이용금액을 보조 원본 필드로 남깁니다.",
+            )
+        elif index in principal_indexes:
+            _set_column_role(
+                columns[index],
+                "amount",
+                "high",
+                "할부 청구 표의 이번 달 원금 열을 검산 기준 이용금액으로 보정합니다.",
+            )
+        elif "잔액" in header:
+            _set_column_role(
+                columns[index],
+                "extra",
+                "medium",
+                "결제 후 잔액은 검산 합계에서 제외되는 보조 원본 필드입니다.",
+            )
+        elif header == "금액" and index > 0 and "구분" in headers[index - 1]:
+            _set_column_role(
+                columns[index],
+                "discount",
+                "medium",
+                "혜택 구분 다음의 금액 열을 혜택/할인 금액으로 보정합니다.",
+            )
+
+
+def _set_column_role(column: dict[str, Any], field: str, confidence: str, reason: str) -> None:
+    column["suggested_field"] = field
+    column["confidence"] = confidence
+    column["reason"] = reason
 
 
 def _first_index(columns: list[dict[str, Any]], start: int, stop: int, predicate: Any) -> int | None:
@@ -681,7 +733,11 @@ def _norm(value: str) -> str:
 
 def _is_date_like(value: str) -> bool:
     value = value.strip()
-    return bool(re.fullmatch(r"\d{1,2}[./-]\d{1,2}", value) or re.fullmatch(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", value))
+    return bool(
+        re.fullmatch(r"\d{1,2}[./-]\d{1,2}", value)
+        or re.fullmatch(r"\d{2}[./-]\d{1,2}[./-]\d{1,2}", value)
+        or re.fullmatch(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", value)
+    )
 
 
 def _is_money_like(value: str) -> bool:

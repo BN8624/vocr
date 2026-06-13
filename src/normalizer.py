@@ -358,6 +358,10 @@ def _normalize_date(value: str) -> str:
     if match:
         year, month, day = match.groups()
         return f"{year}-{int(month):02d}-{int(day):02d}"
+    match = re.fullmatch(r"(\d{2})[./-](\d{1,2})[./-](\d{1,2})", text)
+    if match:
+        year, month, day = match.groups()
+        return f"{2000 + int(year):04d}-{int(month):02d}-{int(day):02d}"
     match = re.fullmatch(r"(\d{1,2})[./-](\d{1,2})", text)
     if match:
         month, day = match.groups()

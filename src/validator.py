@@ -667,6 +667,7 @@ def _is_date_like(value: str) -> bool:
     text = value.strip()
     return bool(
         re.fullmatch(r"\d{1,2}[./-]\d{1,2}", text)
+        or re.fullmatch(r"\d{2}[./-]\d{1,2}[./-]\d{1,2}", text)
         or re.fullmatch(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", text)
     )
 
@@ -686,7 +687,10 @@ def _is_numeric_merchant_exception(value: str) -> bool:
     text = re.sub(r"\s+", "", value.strip())
     if not text:
         return False
-    return "택시" in text or "usd" in text.lower()
+    if "택시" in text or "usd" in text.lower():
+        return True
+    utility_tokens = ("전기", "수신료", "도시가스", "관리비", "통신료")
+    return any(token in text for token in utility_tokens) and bool(re.search(r"\d", text))
 
 
 def _is_benefit_only_row(transaction: dict[str, Any], cells: list[str]) -> bool:

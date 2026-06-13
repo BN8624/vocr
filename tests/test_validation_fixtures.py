@@ -29,6 +29,10 @@ def main() -> int:
         assert taxi is not None
         assert taxi.issue_row_count == 0
 
+        utility = _run_rows(temp_root / "utility", [_transaction("본인31*", "12전기1702487618", 178830)])
+        assert utility is not None
+        assert utility.issue_row_count == 0
+
         benefit = _run_rows(temp_root / "benefit", [_benefit_transaction()])
         assert benefit is not None
         assert benefit.issue_row_count == 0

@@ -8,6 +8,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.chunk_builder import ChunkImage
+from src.normalizer import build_transactions
 from src.profile_store import build_mapping_suggestions
 from src.row_merger import build_row_outputs
 from src.vision_extractor import VisionResult
@@ -61,8 +62,63 @@ def main() -> int:
         weak_match = _candidate_group(root / "weak", profiles_dir / "weak-profile.json")
         assert weak_match["profile_match"]["status"] == "candidate"
 
+        installment = _installment_statement(root / "installment")
+        installment_fields = [column["suggested_field"] for column in installment["mapping"].table_groups[0]["columns"]]
+        assert installment_fields[:10] == [
+            "date",
+            "card_label",
+            "merchant",
+            "extra",
+            "transaction_type",
+            "amount",
+            "fee",
+            "extra",
+            "discount",
+            "extra",
+        ]
+        assert installment["mapping"].table_groups[0]["review_column_count"] == 0
+        assert installment["normalization"].review_count == 0
+        assert installment["normalization"].amount_total == 300000
+
     print("profile signature test passed")
     return 0
+
+
+def _installment_statement(root: Path) -> dict[str, object]:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    profiles_dir = root / "profiles"
+    output_dir.mkdir(parents=True)
+    profiles_dir.mkdir(parents=True)
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision(
+                ["이용일자", "이용카드", "이용가맹점", "이용금액", "할부기간/회차", "원금", "수수료(이자)", "구분", "금액", "결제 후 잔액"],
+                [
+                    ["24.11.13", "본인31*", "애터미 주식회사", "294,400", "3/3", "98,100", "", "무이자", "", ""],
+                    ["25.01.10", "본인31*", "전기요금", "", "", "178,830", "", "", "", ""],
+                    ["25.01.23", "본인31*", "지방세입금1건", "247,480", "3/1", "23,070", "", "무이자", "-4,922", "164,800"],
+                ],
+            )
+        ],
+        chunks=[_chunk()],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping = build_mapping_suggestions(
+        merge_output=merge_output,
+        output_dir=output_dir,
+        profiles_dir=profiles_dir,
+    )
+    assert mapping is not None
+    normalization = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping,
+        merged_dir=merged_dir,
+    )
+    assert normalization is not None
+    return {"mapping": mapping, "normalization": normalization}
 
 
 def _candidate_group(root: Path, profile_path: Path) -> dict[str, object]:
