@@ -430,9 +430,12 @@ def _source_total_candidates(vision_results: list[VisionResult]) -> list[dict[st
                 {
                     "id": _total_id(label, amount, result.page_number, result.chunk_id),
                     "label": label,
+                    "value_text": str(total.get("value_text", "")),
                     "amount": amount,
                     "chunk_id": result.chunk_id,
                     "page": result.page_number,
+                    "needs_review": bool(total.get("needs_review", False)),
+                    "review_reason": str(total.get("review_reason", "")),
                 }
             )
     return candidates

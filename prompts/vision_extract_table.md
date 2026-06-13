@@ -9,6 +9,8 @@ Task:
 - Do not merge rows.
 - Do not invent missing text.
 - If a row, cell, header, or total is uncertain, keep it and mark it with needs_review=true.
+- For totals, the label must include enough nearby context to distinguish similar amounts.
+- If a total is in a table, combine row label and column header instead of returning a short repeated label.
 - If the chunk contains repeated header rows, keep the table header in header and do not include header rows as transactions.
 - If the image has no readable transaction rows, return an empty rows array and explain in notes.
 

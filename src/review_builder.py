@@ -496,12 +496,17 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
             f'<input type="radio" name="checksum-total" value="{escape(candidate_id)}" '
             f'data-candidate="{candidate_json}"{checked}>'
         )
+        amount_text = str(candidate.get("value_text") or candidate.get("amount", ""))
+        source_text = f"p{candidate.get('page', '')} {candidate.get('chunk_id', '')}".strip()
         candidate_items.append(
             '<div class="checksum-candidate">'
             "<label>"
             f"{input_html}"
             f"<strong>{escape(marker)}</strong>"
-            f"<span>{escape(str(candidate.get('label', '원본 합계')))}: {escape(str(candidate.get('amount', '')))}</span>"
+            "<span>"
+            f"{escape(str(candidate.get('label', '원본 합계')))}: {escape(amount_text)}"
+            f"<small>{escape(source_text)}</small>"
+            "</span>"
             "</label>"
             "</div>"
         )
@@ -1268,6 +1273,13 @@ h3 {
 .checksum-candidate span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.checksum-candidate small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 .checksum-actions {
   display: flex;

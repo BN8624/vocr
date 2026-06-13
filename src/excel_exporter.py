@@ -136,20 +136,23 @@ def _write_checksum(sheet: Any, summary: dict[str, Any]) -> None:
     sheet.append(["processed_chunk_count", checksum.get("processed_chunk_count", "")])
     sheet.append(["expected_chunk_count", checksum.get("expected_chunk_count", "")])
     sheet.append([])
-    sheet.append(["source_total_label", "amount", "page", "chunk_id"])
+    sheet.append(["source_total_label", "value_text", "amount", "page", "chunk_id", "needs_review", "review_reason"])
     for candidate in checksum.get("source_total_candidates", []) or []:
         if not isinstance(candidate, dict):
             continue
         sheet.append(
             [
                 candidate.get("label", ""),
+                candidate.get("value_text", ""),
                 candidate.get("amount", ""),
                 candidate.get("page", ""),
                 candidate.get("chunk_id", ""),
+                "Y" if candidate.get("needs_review") else "",
+                candidate.get("review_reason", ""),
             ]
         )
     if not checksum.get("source_total_candidates"):
-        sheet.append(["원본 합계 후보 없음", "", "", ""])
+        sheet.append(["원본 합계 후보 없음", "", "", "", "", "", ""])
     auto_matches = [item for item in checksum.get("auto_match_candidates", []) or [] if isinstance(item, dict)]
     if auto_matches:
         sheet.append([])
