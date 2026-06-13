@@ -776,6 +776,7 @@ def _is_probable_source_total(label: str, total: dict[str, Any]) -> bool:
     normalized = re.sub(r"\s+", "", text).lower()
     total_keywords = (
         "합계",
+        "소계",
         "총액",
         "청구금액",
         "결제금액",
@@ -795,12 +796,13 @@ def _is_probable_source_total(label: str, total: dict[str, Any]) -> bool:
         "포인트사용",
         "m포인트",
         "포인트",
-        "할인",
         "적립",
         "캐시백",
     )
+    if any(keyword in normalized for keyword in row_like_keywords):
+        return False
     has_date = bool(re.search(r"\b\d{1,2}[./-]\d{1,2}\b", text))
-    if has_date and any(keyword in normalized for keyword in row_like_keywords):
+    if has_date:
         return False
     return not has_date
 

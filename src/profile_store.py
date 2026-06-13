@@ -277,6 +277,7 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
             }
         )
 
+    _repair_shifted_card_statement_columns(columns)
     _mark_review_columns(columns)
 
     group = {
@@ -331,6 +332,84 @@ def _has_many_values(column: dict[str, Any]) -> bool:
     return len([value for value in column.get("sample_values", []) if str(value).strip()]) >= 2
 
 
+def _repair_shifted_card_statement_columns(columns: list[dict[str, Any]]) -> None:
+    if len(columns) < 7:
+        return
+    if _sample_rate(columns[0], _is_date_like) < 0.7:
+        return
+
+    card_index = _card_label_index(columns)
+    if card_index is None:
+        return
+    merchant_index = card_index + 1
+    amount_index = card_index + 2
+    rate_index = card_index + 3
+    points_index = card_index + 4
+    billing_index = card_index + 5
+    if billing_index >= len(columns):
+        return
+    if _sample_rate(columns[merchant_index], _is_text_like_not_money) < 0.6:
+        return
+    if _sample_rate(columns[amount_index], _is_money_like) < 0.6:
+        return
+    if _sample_rate(columns[billing_index], _is_money_like) < 0.6:
+        return
+
+    repairs = {
+        0: ("date", "high", "값 패턴이 날짜 열로 안정적입니다."),
+        card_index: ("card_label", "medium", "값 패턴이 카드명 열로 보입니다."),
+        merchant_index: ("merchant", "medium", "카드명 다음의 긴 텍스트 열이라 가맹점으로 보정합니다."),
+        amount_index: ("amount", "medium", "가맹점 다음의 금액 열이라 이용금액으로 보정합니다."),
+        rate_index: ("discount", "medium", "금액 다음의 비율 열이라 혜택 비율로 보정합니다."),
+        points_index: ("points", "medium", "비율 다음의 작은 숫자 열이라 포인트로 보정합니다."),
+        billing_index: ("billing_amount", "medium", "마지막 금액 열이라 청구/결제 금액으로 보정합니다."),
+    }
+    for index, (field, confidence, reason) in repairs.items():
+        columns[index]["suggested_field"] = field
+        columns[index]["confidence"] = confidence
+        columns[index]["reason"] = reason
+
+
+def _first_index(columns: list[dict[str, Any]], start: int, stop: int, predicate: Any) -> int | None:
+    for index in range(start, min(stop, len(columns))):
+        if _sample_rate(columns[index], predicate) >= 0.6:
+            return index
+    return None
+
+
+def _card_label_index(columns: list[dict[str, Any]]) -> int | None:
+    candidates: list[int] = []
+    for index in range(1, min(3, len(columns))):
+        if _sample_rate(columns[index], _is_card_label_like) >= 0.6:
+            candidates.append(index)
+    if not candidates:
+        return None
+    for index in candidates:
+        if _sample_rate(columns[index], _is_owner_marker) < 0.8:
+            return index
+    return candidates[0]
+
+
+def _sample_rate(column: dict[str, Any], predicate: Any) -> float:
+    values = [str(value).strip() for value in column.get("sample_values", []) if str(value).strip()]
+    if not values:
+        return 0.0
+    return sum(1 for value in values if predicate(value)) / len(values)
+
+
+def _is_card_label_like(value: str) -> bool:
+    text = re.sub(r"\s+", " ", value.strip()).lower()
+    return any(token in text for token in ("본인", "가족", "zero", "purple", "포인트형", "카드"))
+
+
+def _is_owner_marker(value: str) -> bool:
+    return re.sub(r"\s+", "", value.strip()) in {"본인", "가족"}
+
+
+def _is_text_like_not_money(value: str) -> bool:
+    return bool(re.search(r"[A-Za-z가-힣]", value)) and not _is_money_like(value)
+
+
 def _suggest_field(header: str, values: list[str]) -> dict[str, str]:
     text = _norm(header)
     nonempty = [value for value in values if value.strip()]
@@ -343,6 +422,12 @@ def _suggest_field(header: str, values: list[str]) -> dict[str, str]:
         return _suggest("merchant", "high", "헤더가 가맹점 열처럼 보입니다.")
     if any(token in text for token in ("수수료", "이자", "fee")):
         return _suggest("fee", "medium", "헤더가 수수료 열처럼 보입니다.")
+    if any(token in text for token in ("해외이용금액", "접수금액", "foreignamount")):
+        return _suggest("foreign_amount", "high", "헤더가 해외 이용 금액 열처럼 보입니다.")
+    if any(token in text for token in ("환율", "exchangerate")):
+        return _suggest("exchange_rate", "high", "헤더가 환율 열처럼 보입니다.")
+    if any(token in text for token in ("국가", "country")):
+        return _suggest("extra", "medium", "헤더가 국가 정보 열처럼 보입니다.")
     if any(token in text for token in ("할인금액", "혜택금액", "할인", "혜택액")):
         return _suggest("discount", "medium", "헤더가 할인/혜택 금액 열처럼 보입니다.")
     if "혜택" in text:
