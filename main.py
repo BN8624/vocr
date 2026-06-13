@@ -124,6 +124,34 @@ def load_review_state(merged_dir: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def load_page_crop_profile(merged_dir: Path) -> dict[str, Any]:
+    profile_path = merged_dir / "page_crop_profile.json"
+    if not profile_path.exists():
+        return {}
+    try:
+        payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        logging.info("Page crop profile is not valid JSON, ignoring: %s", profile_path)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def apply_page_crop_profile(section_config: dict[str, Any], profile: dict[str, Any], section: str) -> dict[str, Any]:
+    pages = profile.get("pages", {}) if isinstance(profile.get("pages"), dict) else {}
+    overrides: dict[str, dict[str, Any]] = {}
+    for page_number, page_data in pages.items():
+        if not isinstance(page_data, dict):
+            continue
+        section_data = page_data.get(section, {})
+        if isinstance(section_data, dict) and section_data:
+            overrides[str(page_number)] = section_data
+    if not overrides:
+        return section_config
+    merged = dict(section_config)
+    merged["__page_overrides"] = overrides
+    return merged
+
+
 def write_summary(
     output_dir: Path,
     config: dict[str, Any],
@@ -231,6 +259,7 @@ def main() -> int:
     try:
         config = load_config(config_path)
         output_dirs = ensure_output_dirs(output_dir, config)
+        page_crop_profile = load_page_crop_profile(output_dirs["merged"])
 
         logging.info("Rendering PDF pages...")
         pages = render_pdf_pages(
@@ -245,7 +274,7 @@ def main() -> int:
         chunks = build_chunks(
             pages=pages,
             chunks_dir=output_dirs["chunks"],
-            config=config["chunking"],
+            config=apply_page_crop_profile(config["chunking"], page_crop_profile, "chunking"),
             force=bool(args.force),
         )
         total_chunks = []
@@ -254,7 +283,11 @@ def main() -> int:
             total_chunks = build_total_chunks(
                 pages=pages,
                 chunks_dir=output_dirs["total_chunks"],
-                config=config.get("total_extraction", {}),
+                config=apply_page_crop_profile(
+                    config.get("total_extraction", {}),
+                    page_crop_profile,
+                    "total_extraction",
+                ),
                 force=bool(args.force),
             )
         review_chunks = chunks + total_chunks

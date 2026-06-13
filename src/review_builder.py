@@ -73,6 +73,7 @@ def build_review_html(
 
     for page in pages:
         page_src = _relative_src(review_path, page.image_path)
+        page_chunks = chunks_by_page.get(page.page_number, [])
         html.extend(
             [
                 '<section class="page-section">',
@@ -84,12 +85,13 @@ def build_review_html(
                 f"{page.width} x {page.height}px, {page.dpi} DPI",
                 " 캐시 사용" if page.reused else " 새로 생성",
                 "</figcaption>",
+                _page_crop_controls(review_path, page, page_chunks),
                 "</figure>",
                 '<div class="chunks">',
             ]
         )
 
-        for chunk in chunks_by_page.get(page.page_number, []):
+        for chunk in page_chunks:
             chunk_src = _relative_src(review_path, chunk.image_path)
             vision = vision_by_chunk.get(chunk.chunk_id)
             html.extend(
@@ -116,6 +118,72 @@ def build_review_html(
     html.extend([_script_block(), "</main>", "</body>", "</html>"])
     review_path.write_text("\n".join(html), encoding="utf-8")
     return review_path
+
+
+def _page_crop_controls(review_path: Path, page: PageImage, page_chunks: list[ChunkImage]) -> str:
+    state_path = review_path.parent / "merged" / "page_crop_profile.json"
+    ratios = _page_crop_ratios(page, page_chunks)
+    controls = [
+        ("header_ratio", "헤더 끝", ratios["header_ratio"]),
+        ("body_start_ratio", "거래 시작", ratios["body_start_ratio"]),
+        ("body_end_ratio", "거래 끝", ratios["body_end_ratio"]),
+        ("summary_start_ratio", "합계 시작", ratios["summary_start_ratio"]),
+        ("summary_end_ratio", "합계 끝", ratios["summary_end_ratio"]),
+    ]
+    control_html = []
+    for field, label, ratio in controls:
+        percent = max(0, min(100, round(ratio * 100)))
+        control_html.append(
+            '<label class="crop-control">'
+            f"<span>{escape(label)}</span>"
+            f'<input type="range" min="0" max="100" step="1" value="{percent}" data-ratio-field="{escape(field)}">'
+            f"<output>{percent}%</output>"
+            "</label>"
+        )
+    return (
+        f'<details class="crop-controls" data-page-number="{page.page_number}" '
+        f'data-crop-state-path="{escape(_relative_src(review_path, state_path))}">'
+        "<summary>이 페이지 자르기 조정</summary>"
+        '<p class="note">표 시작/끝이나 합계 위치가 잘렸을 때만 조정하세요. 저장 후 같은 명령을 --force --force-vision으로 다시 실행하면 적용됩니다.</p>'
+        '<div class="crop-control-grid">'
+        f"{''.join(control_html)}"
+        "</div>"
+        '<div class="crop-actions">'
+        '<button type="button" class="save-page-crop">자르기 설정 저장</button>'
+        '<span class="page-crop-message note"></span>'
+        "</div>"
+        "</details>"
+    )
+
+
+def _page_crop_ratios(page: PageImage, page_chunks: list[ChunkImage]) -> dict[str, float]:
+    body_chunks = [chunk for chunk in page_chunks if "_totals_" not in chunk.chunk_id]
+    total_chunks = [chunk for chunk in page_chunks if "_totals_" in chunk.chunk_id]
+    header_end = _first_positive([chunk.header_y_end for chunk in body_chunks + total_chunks], int(page.height * 0.12))
+    body_start = min((chunk.source_y_start for chunk in body_chunks), default=int(page.height * 0.12))
+    body_end = max((chunk.source_y_end for chunk in body_chunks), default=int(page.height * 0.95))
+    summary_start = min((chunk.source_y_start for chunk in total_chunks), default=int(page.height * 0.62))
+    summary_end = max((chunk.source_y_end for chunk in total_chunks), default=int(page.height * 0.98))
+    return {
+        "header_ratio": _pixel_ratio(header_end, page.height),
+        "body_start_ratio": _pixel_ratio(body_start, page.height),
+        "body_end_ratio": _pixel_ratio(body_end, page.height),
+        "summary_start_ratio": _pixel_ratio(summary_start, page.height),
+        "summary_end_ratio": _pixel_ratio(summary_end, page.height),
+    }
+
+
+def _first_positive(values: list[int], fallback: int) -> int:
+    for value in values:
+        if value > 0:
+            return value
+    return fallback
+
+
+def _pixel_ratio(value: int, height: int) -> float:
+    if height <= 0:
+        return 0
+    return max(0.0, min(1.0, value / height))
 
 
 def _mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
@@ -903,6 +971,7 @@ def _script_block() -> str:
   const checksumMessage = document.getElementById('checksum-message');
   const checksumStatusLine = document.getElementById('checksum-status-line');
   const checksumStatusBadge = document.getElementById('checksum-status-badge');
+  const pageCropButtons = [...document.querySelectorAll('.save-page-crop')];
   const checksumLabels = {
     user_confirmed_total_matched: '검산 일치',
     user_confirmed_total_mismatch: '검산 불일치',
@@ -958,6 +1027,47 @@ def _script_block() -> str:
     if (checksumStatusBadge) checksumStatusBadge.textContent = label;
     return true;
   };
+
+  document.querySelectorAll('.crop-control input[type="range"]').forEach(input => {
+    const output = input.closest('.crop-control')?.querySelector('output');
+    const update = () => {
+      if (output) output.textContent = `${input.value}%`;
+    };
+    input.addEventListener('input', update);
+    update();
+  });
+
+  pageCropButtons.forEach(button => {
+    button.addEventListener('click', async () => {
+      const panel = button.closest('.crop-controls');
+      const messageEl = panel?.querySelector('.page-crop-message');
+      if (!panel) return;
+      const crop = {};
+      panel.querySelectorAll('input[data-ratio-field]').forEach(input => {
+        crop[input.dataset.ratioField || ''] = Number(input.value) / 100;
+      });
+      const statePath = new URL(panel.dataset.cropStatePath || 'merged/page_crop_profile.json', window.location.href).pathname;
+      const payload = {
+        schema_version: '1.0',
+        state_path: statePath,
+        page_number: panel.dataset.pageNumber || '',
+        crop
+      };
+      if (messageEl) messageEl.textContent = '자르기 설정을 PC에 저장하는 중입니다...';
+      try {
+        const response = await fetch('/api/page-crop-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || 'save failed');
+        if (messageEl) messageEl.textContent = '저장했습니다. --force --force-vision으로 다시 실행하면 새 청크와 AI 추출에 적용됩니다.';
+      } catch (error) {
+        if (messageEl) messageEl.textContent = '저장 서버가 없거나 실패했습니다. serve_review.py로 열어 주세요.';
+      }
+    });
+  });
 
   if (saveButton) {
     saveButton.addEventListener('click', async () => {
@@ -1556,6 +1666,52 @@ figcaption {
   margin-top: 8px;
   color: var(--muted);
   font-size: 13px;
+}
+.crop-controls {
+  margin-top: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.crop-controls summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.crop-control-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.crop-control {
+  display: grid;
+  grid-template-columns: 74px 1fr 44px;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.crop-control input {
+  width: 100%;
+  min-height: 34px;
+}
+.crop-control output {
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.crop-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.crop-actions button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+  padding: 8px 14px;
 }
 .chunks {
   display: grid;

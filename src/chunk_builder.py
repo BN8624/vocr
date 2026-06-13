@@ -40,22 +40,23 @@ def build_chunks(
     chunks: list[ChunkImage] = []
 
     for page in pages:
+        page_config = _page_config(config, page.page_number)
         with Image.open(page.image_path) as image:
             image = image.convert("RGB")
             width, height = image.size
 
             header_y_start = 0
-            header_y_end = _clamp(int(height * float(config["header_ratio"])), 1, height)
-            body_y_start = _clamp(int(height * float(config["body_start_ratio"])), 0, height - 1)
-            body_y_end = _clamp(int(height * float(config["body_end_ratio"])), body_y_start + 1, height)
+            header_y_end = _clamp(int(height * float(page_config["header_ratio"])), 1, height)
+            body_y_start = _clamp(int(height * float(page_config["body_start_ratio"])), 0, height - 1)
+            body_y_end = _clamp(int(height * float(page_config["body_end_ratio"])), body_y_start + 1, height)
             chunk_height = _clamp(
-                int(height * float(config["chunk_height_ratio"])),
+                int(height * float(page_config["chunk_height_ratio"])),
                 1,
                 body_y_end - body_y_start,
             )
-            overlap = _clamp(int(chunk_height * float(config["overlap_ratio"])), 0, chunk_height - 1)
+            overlap = _clamp(int(chunk_height * float(page_config["overlap_ratio"])), 0, chunk_height - 1)
             step = max(1, chunk_height - overlap)
-            attach_header = bool(config.get("attach_header", True))
+            attach_header = bool(page_config.get("attach_header", True))
 
             header = image.crop((0, header_y_start, width, header_y_end))
             y_start = body_y_start
@@ -126,12 +127,13 @@ def build_total_chunks(
     chunks_dir.mkdir(parents=True, exist_ok=True)
     chunks: list[ChunkImage] = []
 
-    header_ratio = float(config.get("header_ratio", 0.12))
-    summary_start_ratio = float(config.get("summary_start_ratio", 0.62))
-    summary_end_ratio = float(config.get("summary_end_ratio", 0.98))
-    attach_header = bool(config.get("attach_header", True))
-
     for page in pages:
+        page_config = _page_config(config, page.page_number)
+        header_ratio = float(page_config.get("header_ratio", 0.12))
+        summary_start_ratio = float(page_config.get("summary_start_ratio", 0.62))
+        summary_end_ratio = float(page_config.get("summary_end_ratio", 0.98))
+        attach_header = bool(page_config.get("attach_header", True))
+
         with Image.open(page.image_path) as image:
             image = image.convert("RGB")
             width, height = image.size
@@ -184,6 +186,17 @@ def build_total_chunks(
 
 def _clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
+
+
+def _page_config(config: dict[str, Any], page_number: int) -> dict[str, Any]:
+    merged = {key: value for key, value in config.items() if key != "__page_overrides"}
+    overrides = config.get("__page_overrides", {})
+    if not isinstance(overrides, dict):
+        return merged
+    page_override = overrides.get(str(page_number)) or overrides.get(page_number)
+    if isinstance(page_override, dict):
+        merged.update(page_override)
+    return merged
 
 
 def _chunk_to_json(chunk: ChunkImage) -> dict[str, object]:

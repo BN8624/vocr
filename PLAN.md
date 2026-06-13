@@ -36,6 +36,7 @@ Implemented:
 - Phase 7C: column-level validation for date, amount, merchant, card label, and row cell-count distribution
 - Phase 7D: table-signature profile matching with auto/candidate thresholds
 - Phase 7E: review-state save refreshes validation summary from cached Vision results in the review server
+- Phase 7F: page-level crop profile saved from review UI and applied to chunk/total extraction on rerun
 - Phase 8: Excel export to `result.xlsx`
 
 Generated Excel sheets:
@@ -187,6 +188,7 @@ Implemented checks include:
 - total-only chunks can capture summary totals without reprocessing every transaction body chunk
 - mapping profiles can match by table signature, not only exact header/group id
 - `serve_review.py` refreshes `validation_summary.json` immediately after saving a checksum choice when cached Vision and normalized transactions already exist
+- page-level crop profiles can adjust header/body/summary ratios for difficult pages without changing global config
 
 Checksum status meanings:
 
@@ -246,5 +248,5 @@ Good next improvements:
 
 1. Add more validation tests with tiny fixture JSONL files.
 2. Split `review_builder.py` into template/static assets once behavior stabilizes.
-3. Add page-level crop/chunk adjustment controls for difficult pages.
+3. Add visual crop overlays on page images so slider positions are visible before rerunning.
 4. Add a small profile management CLI for listing/removing saved profiles.

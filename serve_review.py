@@ -27,6 +27,9 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
         if self.path == "/api/review-state":
             self._handle_review_state()
             return
+        if self.path == "/api/page-crop-profile":
+            self._handle_page_crop_profile()
+            return
         self.send_error(404, "Not found")
 
     def _handle_mapping_profile(self) -> None:
@@ -66,6 +69,26 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
                 "path": str(saved_path),
                 "filename": saved_path.name,
                 "refresh": refresh,
+            }
+        )
+
+    def _handle_page_crop_profile(self) -> None:
+        try:
+            payload = self._read_json_body(require_table_groups=False)
+            saved_path = self._save_page_crop_profile(payload)
+        except ValueError as exc:
+            self._send_json({"ok": False, "error": str(exc)}, status=400)
+            return
+        except Exception as exc:
+            self._send_json({"ok": False, "error": f"Could not save page crop profile: {exc}"}, status=500)
+            return
+
+        self._send_json(
+            {
+                "ok": True,
+                "path": str(saved_path),
+                "filename": saved_path.name,
+                "message": "페이지 자르기 설정을 저장했습니다.",
             }
         )
 
@@ -157,6 +180,39 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
             },
         }
         target.write_text(json.dumps(review_state, ensure_ascii=False, indent=2), encoding="utf-8")
+        return target
+
+    def _save_page_crop_profile(self, payload: dict[str, Any]) -> Path:
+        state_path = str(payload.get("state_path", "")).strip()
+        if not state_path:
+            raise ValueError("Crop profile payload must include state_path")
+
+        target = self._resolve_served_path(state_path)
+        if target.name != "page_crop_profile.json":
+            raise ValueError("Crop profile filename must be page_crop_profile.json")
+        if target.parent.name != "merged":
+            raise ValueError("Crop profile must be saved under a merged folder")
+
+        page_number = str(payload.get("page_number", "")).strip()
+        if not page_number.isdigit() or int(page_number) <= 0:
+            raise ValueError("Crop profile payload must include a positive page_number")
+        crop = payload.get("crop", {})
+        if not isinstance(crop, dict):
+            raise ValueError("Crop profile payload must include crop object")
+
+        page_crop = _validated_page_crop(crop)
+        existing = _read_json_object(target)
+        pages = existing.get("pages", {}) if isinstance(existing.get("pages"), dict) else {}
+        pages[str(int(page_number))] = page_crop
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        profile = {
+            "schema_version": "1.0",
+            "status": "user_confirmed_page_crop_profile",
+            "saved_at": datetime.now().isoformat(timespec="seconds"),
+            "pages": pages,
+        }
+        target.write_text(json.dumps(profile, ensure_ascii=False, indent=2), encoding="utf-8")
         return target
 
     def _resolve_served_path(self, request_path: str) -> Path:
@@ -294,6 +350,42 @@ def _load_cached_vision_results(cache_dir: Path) -> list[VisionResult]:
             )
         )
     return results
+
+
+def _validated_page_crop(crop: dict[str, Any]) -> dict[str, Any]:
+    header_ratio = _ratio(crop, "header_ratio")
+    body_start_ratio = _ratio(crop, "body_start_ratio")
+    body_end_ratio = _ratio(crop, "body_end_ratio")
+    summary_start_ratio = _ratio(crop, "summary_start_ratio")
+    summary_end_ratio = _ratio(crop, "summary_end_ratio")
+
+    if body_start_ratio >= body_end_ratio:
+        raise ValueError("Body start must be smaller than body end")
+    if summary_start_ratio >= summary_end_ratio:
+        raise ValueError("Summary start must be smaller than summary end")
+
+    return {
+        "chunking": {
+            "header_ratio": header_ratio,
+            "body_start_ratio": body_start_ratio,
+            "body_end_ratio": body_end_ratio,
+        },
+        "total_extraction": {
+            "header_ratio": header_ratio,
+            "summary_start_ratio": summary_start_ratio,
+            "summary_end_ratio": summary_end_ratio,
+        },
+    }
+
+
+def _ratio(crop: dict[str, Any], key: str) -> float:
+    try:
+        value = float(crop[key])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(f"Crop value must be numeric: {key}") from exc
+    if value < 0 or value > 1:
+        raise ValueError(f"Crop value must be between 0 and 1: {key}")
+    return round(value, 4)
 
 
 def _expected_chunk_count(output_dir: Path) -> int | None:
