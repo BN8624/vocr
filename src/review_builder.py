@@ -113,7 +113,7 @@ def _review_tasks_block(
                 href="#validation",
                 tone=(
                     "ok"
-                    if checksum_status == "user_confirmed_total_matched"
+                    if checksum_status in {"user_confirmed_total_matched", "auto_selected_total_matched"}
                     and issue_count == 0
                     and column_issue_count == 0
                     else "warn"
@@ -694,6 +694,7 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
 
 def _checksum_label(status: str) -> str:
     labels = {
+        "auto_selected_total_matched": "검산 자동 일치",
         "user_confirmed_total_matched": "검산 일치",
         "user_confirmed_total_mismatch": "검산 불일치",
         "no_user_total_selected": "검산 기준 미선택",

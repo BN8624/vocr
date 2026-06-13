@@ -39,8 +39,9 @@ def build_transactions(
     source_rows = _read_jsonl(merge_output.rows_merged_path)
     rows = [row for row in source_rows if _should_normalize_row(row)]
     mapping_index = _mapping_index(mapping_output)
-    transactions = [_normalize_row(row, mapping_index) for row in rows]
-    duplicate_excluded_count = len(source_rows) - len(rows)
+    transactions_all = [_normalize_row(row, mapping_index) for row in rows]
+    transactions, normalized_duplicate_excluded = _exclude_normalized_duplicates(transactions_all)
+    duplicate_excluded_count = len(source_rows) - len(rows) + normalized_duplicate_excluded
 
     transactions_path = merged_dir / "transactions.jsonl"
     summary_path = merged_dir / "normalization_summary.json"
@@ -60,6 +61,7 @@ def build_transactions(
         "source_row_count": len(source_rows),
         "transaction_count": len(transactions),
         "duplicate_excluded_count": duplicate_excluded_count,
+        "normalized_duplicate_excluded_count": normalized_duplicate_excluded,
         "review_count": len(review_rows),
         "amount_total": amount_total,
         "billing_amount_total": billing_total,
@@ -90,6 +92,79 @@ def build_transactions(
 def _should_normalize_row(row: dict[str, Any]) -> bool:
     merge = row.get("merge", {})
     return str(merge.get("decision", "keep")) != "duplicate_excluded"
+
+
+def _exclude_normalized_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        key = _normalized_duplicate_key(row)
+        if key:
+            grouped[key].append(row)
+
+    excluded: set[tuple[str, int]] = set()
+    for candidates in grouped.values():
+        by_page: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for row in candidates:
+            source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+            by_page[int(source.get("page", 0) or 0)].append(row)
+        for page_rows in by_page.values():
+            chunks = {_chunk_index(str(row.get("source", {}).get("chunk_id", ""))) for row in page_rows}
+            chunk_numbers = sorted(index for index in chunks if index is not None)
+            if len(page_rows) < 2 or not chunk_numbers or chunk_numbers[-1] - chunk_numbers[0] > 1:
+                continue
+            representative = max(page_rows, key=_normalized_representative_score)
+            representative_key = _source_key(representative)
+            for row in page_rows:
+                row_key = _source_key(row)
+                if row_key == representative_key:
+                    continue
+                excluded.add(row_key)
+
+    kept: list[dict[str, Any]] = []
+    for row in rows:
+        if _source_key(row) in excluded:
+            continue
+        kept.append(row)
+    return kept, len(excluded)
+
+
+def _normalized_duplicate_key(row: dict[str, Any]) -> tuple[Any, ...] | None:
+    source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+    transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+    amount = transaction.get("amount")
+    if not isinstance(amount, int):
+        return None
+    date = str(transaction.get("date", "")).strip()
+    if not date:
+        return None
+    billing_amount = transaction.get("billing_amount")
+    billing_key = billing_amount if isinstance(billing_amount, int) else amount
+    return (int(source.get("page", 0) or 0), date, amount, billing_key)
+
+
+def _normalized_representative_score(row: dict[str, Any]) -> tuple[int, int, int, int]:
+    quality = row.get("quality", {}) if isinstance(row.get("quality"), dict) else {}
+    cells = [str(value).strip() for value in row.get("raw", {}).get("cells", [])]
+    transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+    source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+    return (
+        0 if quality.get("needs_review") else 1,
+        1 if transaction.get("billing_amount") is not None else 0,
+        sum(1 for cell in cells if cell),
+        -int(source.get("local_row_index", 0) or 0),
+    )
+
+
+def _source_key(row: dict[str, Any]) -> tuple[str, int]:
+    source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+    return (str(source.get("chunk_id", "")), int(source.get("local_row_index", 0) or 0))
+
+
+def _chunk_index(chunk_id: str) -> int | None:
+    match = re.search(r"_chunk_(\d+)$", chunk_id)
+    if not match:
+        return None
+    return int(match.group(1))
 
 
 def load_normalization_output(merged_dir: Path) -> NormalizationOutput | None:
@@ -167,11 +242,13 @@ def _normalize_row(
             review_reasons.append(reason)
         transaction[field] = amount
 
+    review_reasons = _filter_auto_resolved_reasons(review_reasons, transaction, cells)
+
     if not transaction.get("date"):
         review_reasons.append("날짜 열을 확정하지 못했습니다.")
     if not transaction.get("merchant"):
         review_reasons.append("가맹점 열을 확정하지 못했습니다.")
-    if transaction.get("amount") is None:
+    if transaction.get("amount") is None and not _amount_optional_transaction(transaction, cells):
         review_reasons.append("이용금액을 숫자로 확정하지 못했습니다.")
 
     normalized["transaction"] = transaction
@@ -180,6 +257,21 @@ def _normalize_row(
     normalized["quality"]["needs_review"] = bool(review_reasons)
     normalized["quality"]["review_reason"] = "; ".join(_unique(review_reasons))
     return normalized
+
+
+def _filter_auto_resolved_reasons(
+    reasons: list[str],
+    transaction: dict[str, Any],
+    cells: list[str],
+) -> list[str]:
+    filtered: list[str] = []
+    for reason in reasons:
+        if _amount_optional_transaction(transaction, cells) and (
+            "M 포인트 사용 행" in reason or "이용금액을 숫자로 확정하지 못했습니다" in reason
+        ):
+            continue
+        filtered.append(reason)
+    return filtered
 
 
 def _mapping_index(mapping_output: MappingOutput) -> dict[str, dict[int, dict[str, Any]]]:
@@ -244,6 +336,20 @@ def _parse_amount(value: str) -> int | None:
         return None
     amount = int(cleaned)
     return -amount if negative else amount
+
+
+def _amount_optional_transaction(transaction: dict[str, Any], cells: list[str]) -> bool:
+    merchant = str(transaction.get("merchant", "")).strip()
+    amount = transaction.get("amount")
+    if amount is not None:
+        return False
+    benefit_keywords = ("포인트사용", "포인트", "할인", "적립", "캐시백")
+    if any(keyword in merchant for keyword in benefit_keywords) and any(_parse_amount(cell) is not None for cell in cells):
+        return True
+    billing_amount = transaction.get("billing_amount")
+    if isinstance(billing_amount, int) and "usd" in " ".join(cells).lower():
+        return True
+    return False
 
 
 def _normalize_date(value: str) -> str:

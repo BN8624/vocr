@@ -40,7 +40,7 @@ def main() -> int:
             expected_chunk_count=1,
         )
         assert first is not None
-        assert first.checksum_status == "no_user_total_selected"
+        assert first.checksum_status == "auto_selected_total_matched"
         auto_matches = first.summary["checksum"]["auto_match_candidates"]
         assert len(auto_matches) == 1
 
@@ -74,6 +74,29 @@ def main() -> int:
         assert mismatch is not None
         assert mismatch.checksum_status == "user_confirmed_total_mismatch"
         assert mismatch.checksum_difference == -2000
+
+        adjusted = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=118000,
+                billing_amount_total=0,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("\uccad\uad6c\ud560\uc778 \uc18c\uacc4", -18000),
+                _vision_total("\ucd1d\ud569\uacc4", 100000),
+                _vision_total("\uc77c\ubd80\uacb0\uc81c\uae08\uc561\uc774\uc6d4\uc57d\uc815 \uc18c\uacc4", 100000),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=1,
+        )
+        assert adjusted is not None
+        assert adjusted.checksum_status == "auto_selected_total_matched"
+        assert adjusted.summary["checksum"]["matched_total"]["label"] == "총합계"
+        assert adjusted.summary["checksum"]["matched_field"] == "amount_total_adjusted"
 
     print("checksum selection test passed")
     return 0

@@ -76,6 +76,7 @@ def main() -> int:
         assert normalization_output.summary["duplicate_excluded_count"] == 1
 
         _assert_non_adjacent_duplicates_need_review(root / "non_adjacent")
+        _assert_normalized_variant_duplicates_excluded(root / "normalized_variant")
 
     print("duplicate representative test passed")
     return 0
@@ -174,6 +175,83 @@ def _assert_non_adjacent_duplicates_need_review(root: Path) -> None:
     assert decisions == ["needs_review", "needs_review"], decisions
     assert merge_output.summary["duplicate_excluded_count"] == 0
     assert merge_output.summary["duplicate_review_count"] == 2
+
+
+def _assert_normalized_variant_duplicates_excluded(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    chunks = [
+        _chunk("page_001_chunk_01", root / "chunk_01.png", 1),
+        _chunk("page_001_chunk_02", root / "chunk_02.png", 2),
+    ]
+    vision_results = [
+        _vision_with_header(
+            "page_001_chunk_01",
+            ["date", "card", "merchant", "amount", "billing"],
+            [["03.14", "the Purple", "store", "10,000", "10,000"]],
+        ),
+        _vision_with_header(
+            "page_001_chunk_02",
+            ["date", "owner", "card", "merchant", "amount", "points", "billing"],
+            [["03.14", "본인", "the Purple", "store", "10,000", "10", "10,000"]],
+        ),
+    ]
+    merge_output = build_row_outputs(
+        vision_results=vision_results,
+        chunks=chunks,
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[
+            _mapping_group_for(["date", "card", "merchant", "amount", "billing"], ["date", "card_label", "merchant", "amount", "billing_amount"]),
+            _mapping_group_for(
+                ["date", "owner", "card", "merchant", "amount", "points", "billing"],
+                ["date", "ignore", "card_label", "merchant", "amount", "points", "billing_amount"],
+            ),
+        ],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping_output,
+        merged_dir=merged_dir,
+    )
+    assert normalization_output is not None
+    assert normalization_output.transaction_count == 1
+    assert normalization_output.amount_total == 10000
+    assert normalization_output.summary["normalized_duplicate_excluded_count"] == 1
+
+
+def _vision_with_header(chunk_id: str, header: list[str], cells_list: list[list[str]]) -> VisionResult:
+    result = _vision(chunk_id, cells_list)
+    assert result.data is not None
+    result.data["header"] = header
+    return result
+
+
+def _mapping_group_for(header: list[str], fields: list[str]) -> dict[str, object]:
+    return {
+        "group_id": "|".join(header),
+        "row_count": 1,
+        "header": header,
+        "columns": [
+            {
+                "column_index": index,
+                "column_id": f"col_{index + 1}",
+                "header": label,
+                "suggested_field": fields[index],
+                "selected_field": fields[index],
+                "requires_review": False,
+            }
+            for index, label in enumerate(header)
+        ],
+    }
 
 
 def _read_jsonl(path: Path) -> list[dict[str, object]]:

@@ -335,6 +335,9 @@ def _has_many_values(column: dict[str, Any]) -> bool:
 def _repair_shifted_card_statement_columns(columns: list[dict[str, Any]]) -> None:
     if len(columns) < 7:
         return
+    headers = [_norm(str(column.get("header", ""))) for column in columns]
+    if _has_stable_statement_headers(headers):
+        return
     if _sample_rate(columns[0], _is_date_like) < 0.7:
         return
 
@@ -357,12 +360,12 @@ def _repair_shifted_card_statement_columns(columns: list[dict[str, Any]]) -> Non
 
     repairs = {
         0: ("date", "high", "값 패턴이 날짜 열로 안정적입니다."),
-        card_index: ("card_label", "medium", "값 패턴이 카드명 열로 보입니다."),
-        merchant_index: ("merchant", "medium", "카드명 다음의 긴 텍스트 열이라 가맹점으로 보정합니다."),
-        amount_index: ("amount", "medium", "가맹점 다음의 금액 열이라 이용금액으로 보정합니다."),
+        card_index: ("card_label", "high", "값 패턴이 카드명 열로 안정적입니다."),
+        merchant_index: ("merchant", "high", "카드명 다음의 긴 텍스트 열이라 가맹점으로 보정합니다."),
+        amount_index: ("amount", "high", "가맹점 다음의 금액 열이라 이용금액으로 보정합니다."),
         rate_index: ("discount", "medium", "금액 다음의 비율 열이라 혜택 비율로 보정합니다."),
         points_index: ("points", "medium", "비율 다음의 작은 숫자 열이라 포인트로 보정합니다."),
-        billing_index: ("billing_amount", "medium", "마지막 금액 열이라 청구/결제 금액으로 보정합니다."),
+        billing_index: ("billing_amount", "high", "마지막 금액 열이라 청구/결제 금액으로 보정합니다."),
     }
     for index, (field, confidence, reason) in repairs.items():
         columns[index]["suggested_field"] = field
@@ -375,6 +378,15 @@ def _first_index(columns: list[dict[str, Any]], start: int, stop: int, predicate
         if _sample_rate(columns[index], predicate) >= 0.6:
             return index
     return None
+
+
+def _has_stable_statement_headers(headers: list[str]) -> bool:
+    joined = "|".join(headers)
+    has_card = any("카드" in header or "card" in header for header in headers)
+    has_merchant = any("가맹점" in header or "merchant" in header for header in headers)
+    has_amount = any(header in {"이용금액", "금액", "amount"} for header in headers)
+    has_billing = any("결제원금" in header or "청구금액" in header or "billing" in header for header in headers)
+    return has_card and has_merchant and has_amount and has_billing and "이용내용" not in joined
 
 
 def _card_label_index(columns: list[dict[str, Any]]) -> int | None:
@@ -427,7 +439,7 @@ def _suggest_field(header: str, values: list[str]) -> dict[str, str]:
     if any(token in text for token in ("환율", "exchangerate")):
         return _suggest("exchange_rate", "high", "헤더가 환율 열처럼 보입니다.")
     if any(token in text for token in ("국가", "country")):
-        return _suggest("extra", "medium", "헤더가 국가 정보 열처럼 보입니다.")
+        return _suggest("memo", "medium", "헤더가 국가 정보 열처럼 보입니다.")
     if any(token in text for token in ("할인금액", "혜택금액", "할인", "혜택액")):
         return _suggest("discount", "medium", "헤더가 할인/혜택 금액 열처럼 보입니다.")
     if "혜택" in text:

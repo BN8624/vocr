@@ -33,6 +33,10 @@ def main() -> int:
         assert benefit is not None
         assert benefit.issue_row_count == 0
 
+        foreign = _run_rows(temp_root / "foreign", [_foreign_transaction()])
+        assert foreign is not None
+        assert foreign.issue_row_count == 0
+
         contaminated = _run_fixture(root, temp_root / "contaminated", "validation_contaminated.jsonl")
         assert contaminated is not None
         assert contaminated.issue_row_count == 5
@@ -166,11 +170,31 @@ def _benefit_transaction() -> dict[str, object]:
             "card_label": "본인 ZERO 포인트형",
             "merchant": "GS슈퍼마켓M포인트사용",
             "amount": None,
-            "billing_amount": None,
+            "billing_amount": -2000,
             "transaction_type": "",
         },
         "quality": {"needs_review": False, "review_reason": ""},
         "extra_fields": {"discount": "-2,000"},
+    }
+
+
+def _foreign_transaction() -> dict[str, object]:
+    return {
+        "source": {"page": 1, "chunk_id": "page_001_chunk_01", "local_row_index": 1},
+        "raw": {
+            "header": ["이용일", "이용카드", "이용가맹점", "국가", "해외이용금액", "접수금액", "환율", "해외이용수수료", "결제원금(원)"],
+            "cells": ["01.29", "the Purple(KAL)", "KOREAN AIR 18023555.USD:598.93", "미국", "USD 598.93", "USD 599.31", "1,500.10", "898", "900,433"],
+        },
+        "transaction": {
+            "date": "01-29",
+            "card_label": "the Purple(KAL)",
+            "merchant": "KOREAN AIR 18023555.USD:598.93",
+            "amount": None,
+            "billing_amount": 900433,
+            "transaction_type": "",
+        },
+        "quality": {"needs_review": False, "review_reason": ""},
+        "extra_fields": {"foreign_amount": "USD 598.93", "exchange_rate": "1,500.10", "fee": "898"},
     }
 
 

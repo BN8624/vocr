@@ -156,7 +156,7 @@ def _validate_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]
         if not _is_date_like(date):
             issues[key].append(_issue("date_not_date_like", f"날짜처럼 보이지 않습니다: {date or '(비어 있음)'}"))
         if not isinstance(amount, int):
-            if not _is_benefit_only_row(transaction, cells):
+            if not _is_benefit_only_row(transaction, cells) and not _is_foreign_billing_only_row(transaction, cells):
                 issues[key].append(_issue("amount_not_numeric", "이용금액이 숫자가 아닙니다."))
         elif amount == 0:
             issues[key].append(_issue("amount_zero", "이용금액이 0입니다. 실제 0원 거래인지 확인이 필요합니다."))
@@ -226,12 +226,16 @@ def _column_quality_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str
     raw_headers = _first_header(rows)
     metrics = {
         "date_parse_success_rate": _rate(rows, lambda row: _is_date_like(_transaction_text(row, "date"))),
-        "amount_parse_success_rate": _rate(rows, lambda row: isinstance(_transaction_value(row, "amount"), int)),
+        "amount_parse_success_rate": _rate(rows, _amount_valid_or_exempt),
         "merchant_numeric_like_rate": _rate(rows, lambda row: _mostly_numeric(_transaction_text(row, "merchant"))),
         "merchant_empty_rate": _rate(rows, lambda row: not _transaction_text(row, "merchant")),
         "merchant_unique_rate": _unique_rate(rows, "merchant"),
         "card_label_unique_count": _unique_count(rows, "card_label"),
-        "card_label_long_text_rate": _rate(rows, lambda row: len(_transaction_text(row, "card_label")) >= 18),
+        "card_label_long_text_rate": _rate(
+            rows,
+            lambda row: len(_transaction_text(row, "card_label")) >= 18
+            and not _looks_like_card_label(_transaction_text(row, "card_label")),
+        ),
         "row_cell_count_distribution": _cell_count_distribution(rows),
     }
     issues = _column_quality_issues(group_id, row_count, raw_headers, metrics)
@@ -515,6 +519,23 @@ def _checksum_summary(
         }
 
     if not selected_total_id:
+        auto_selected = _auto_selected_match(auto_matches)
+        if auto_selected:
+            selected = auto_selected["candidate"]
+            return {
+                "status": "auto_selected_total_matched",
+                "message": f"원본 합계 후보가 {auto_selected['field']}과 자동 일치했습니다.",
+                "amount_total": amount_total,
+                "billing_amount_total": billing_amount_total,
+                "source_total_candidates": source_totals,
+                "matched_total": selected,
+                "selected_total": selected,
+                "selected_total_id": str(selected.get("id", "")),
+                "matched_field": auto_selected["field"],
+                "auto_match_candidates": auto_matches,
+                "difference": 0,
+                **scan_note,
+            }
         return {
             "status": "no_user_total_selected",
             "message": "검산 기준 원본 합계를 아직 선택하지 않았습니다. 자동 일치는 참고로만 표시합니다.",
@@ -665,19 +686,37 @@ def _is_numeric_merchant_exception(value: str) -> bool:
     text = re.sub(r"\s+", "", value.strip())
     if not text:
         return False
-    return "택시" in text
+    return "택시" in text or "usd" in text.lower()
 
 
 def _is_benefit_only_row(transaction: dict[str, Any], cells: list[str]) -> bool:
     merchant = str(transaction.get("merchant", "")).strip()
     amount = transaction.get("amount")
-    billing_amount = transaction.get("billing_amount")
-    if amount is not None or billing_amount is not None:
+    if amount is not None:
         return False
     benefit_keywords = ("포인트사용", "포인트", "할인", "적립", "캐시백")
     if not any(keyword in merchant for keyword in benefit_keywords):
         return False
     return any(_parse_amount(cell) is not None for cell in cells)
+
+
+def _is_foreign_billing_only_row(transaction: dict[str, Any], cells: list[str]) -> bool:
+    amount = transaction.get("amount")
+    billing_amount = transaction.get("billing_amount")
+    if amount is not None or not isinstance(billing_amount, int):
+        return False
+    joined = " ".join(cells).lower()
+    return "usd" in joined or "해외" in joined
+
+
+def _amount_valid_or_exempt(row: dict[str, Any]) -> bool:
+    transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+    cells = [str(value) for value in row.get("raw", {}).get("cells", [])]
+    return (
+        isinstance(transaction.get("amount"), int)
+        or _is_benefit_only_row(transaction, cells)
+        or _is_foreign_billing_only_row(transaction, cells)
+    )
 
 
 def _looks_like_merchant(value: str) -> bool:
@@ -762,9 +801,71 @@ def _auto_match_candidates(
                         "field": field,
                         "candidate": candidate,
                         "difference": 0,
+                        "score": _total_candidate_score(candidate),
+                        "match_type": "exact",
                     }
                 )
-    return matches
+    adjustments = _checksum_adjustments(source_totals)
+    if adjustments:
+        adjusted_targets = [
+            ("amount_total_adjusted", amount_total + adjustments),
+            ("billing_amount_total_adjusted", billing_amount_total + adjustments),
+        ]
+        for field, total_value in adjusted_targets:
+            for candidate in source_totals:
+                if int(candidate.get("amount", 0)) == total_value:
+                    matches.append(
+                        {
+                            "field": field,
+                            "candidate": candidate,
+                            "difference": 0,
+                            "adjustment_total": adjustments,
+                            "score": _total_candidate_score(candidate),
+                            "match_type": "adjusted",
+                        }
+                    )
+    return sorted(matches, key=lambda item: int(item.get("score", 0)), reverse=True)
+
+
+def _auto_selected_match(auto_matches: list[dict[str, Any]]) -> dict[str, Any] | None:
+    if not auto_matches:
+        return None
+    best = auto_matches[0]
+    if int(best.get("score", 0)) >= 100:
+        return best
+    if int(best.get("score", 0)) < 80:
+        return None
+    if len(auto_matches) == 1:
+        return best
+    second = auto_matches[1]
+    if int(best.get("score", 0)) - int(second.get("score", 0)) >= 30:
+        return best
+    return None
+
+
+def _checksum_adjustments(source_totals: list[dict[str, Any]]) -> int:
+    total = 0
+    for candidate in source_totals:
+        label = re.sub(r"\s+", "", str(candidate.get("label", "")).lower())
+        amount = candidate.get("amount")
+        if not isinstance(amount, int):
+            continue
+        if amount < 0 and any(token in label for token in ("할인", "청구할인", "조정")):
+            total += amount
+    return total
+
+
+def _total_candidate_score(candidate: dict[str, Any]) -> int:
+    label = re.sub(r"\s+", "", str(candidate.get("label", "")).lower())
+    if "총합계" in label or label == "합계":
+        return 100
+    if any(token in label for token in ("청구금액", "결제금액", "이번달")):
+        return 90
+    if "합계" in label:
+        return 80
+    if "소계" in label:
+        return 40
+    return 20
 
 
 def _is_probable_source_total(label: str, total: dict[str, Any]) -> bool:
