@@ -16,7 +16,7 @@ NEEDS_VERIFICATION
 |---|---|---|---|---|
 | Vision-first PDF/image pipeline | PARTIAL | `main.py`, `src/page_renderer.py`, `src/chunk_builder.py`, `src/vision_extractor.py` | Core extraction path exists | Acceptance metrics with `--with-vision` are not yet complete |
 | Local acceptance sample runner | PARTIAL | `tests/regression_samples.py` | Runs local samples and writes report | Must become strict 9-sample acceptance runner with automation metrics |
-| Sample manifest | PLANNED | `newplan.md` P0-1/P0-2 | Standardizes issuer/sample discovery | `tools/build_sample_manifest.py` and `samples/sample_manifest.json` not implemented |
+| Sample manifest | PARTIAL | `tools/build_sample_manifest.py`, `tests/test_sample_manifest.py` | Standardizes issuer/sample discovery | Writes manifest, but canonical `samples/sample_manifest.json` workflow is not adopted yet |
 | Excel export | PARTIAL | `src/excel_exporter.py`, `result.xlsx` outputs | Produces workbook for converted rows | Must be validated against non-empty sheet criteria for all acceptance samples |
 | Raw cell preservation | DONE | `rows_raw.jsonl`, `rows_merged.jsonl`, `원본셀` sheet | Audit trail | Must remain enforced as automation fields are added |
 | Duplicate representative selection | PARTIAL | `src/row_merger.py`, duplicate tests | Reduces inflated totals from overlap chunks | Needs new duplicate statuses from `newplan.md` |
@@ -33,8 +33,8 @@ NEEDS_VERIFICATION
 ## Current P0 Focus
 
 ```text
-1. Build sample manifest generation.
-2. Strengthen tests/regression_samples.py as the acceptance runner.
-3. Generate merged/automation_summary.json per sample.
-4. Add row-level automation status and rates.
+1. Strengthen tests/regression_samples.py as the acceptance runner.
+2. Generate merged/automation_summary.json per sample.
+3. Add row-level automation status and rates.
+4. Run the first Vision acceptance sample after explicit external API approval.
 ```

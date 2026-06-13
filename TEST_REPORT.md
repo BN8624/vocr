@@ -21,6 +21,8 @@ python tests/test_profile_signature.py
 python tests/test_profile_manager.py
 python tests/test_total_chunks.py
 python tests/regression_samples.py
+python tests/test_sample_manifest.py
+python tests/regression_samples.py --samples-dir 견본 --issuer 현대카드 --pages 1 --limit 1 --output output/first_hyundai_1_dry_run
 ```
 
 ## Acceptance Set
@@ -103,6 +105,36 @@ hard_review_rate average: not measured
 blocked count: not measured
 full --with-vision acceptance: NEEDS_VERIFICATION
 ```
+
+## Stepwise Acceptance Progress
+
+First selected sample:
+
+```text
+현대카드_1.pdf
+```
+
+Dry-run evidence:
+
+```text
+command: python tests/regression_samples.py --samples-dir 견본 --issuer 현대카드 --pages 1 --limit 1 --output output/first_hyundai_1_dry_run
+result: PASS
+pages: 1/1
+chunks: 4
+vision: not_run
+```
+
+Vision evidence:
+
+```text
+command attempted: python main.py --input "견본\현대카드_1.pdf" --output output\acceptance_hyundai_1 --force --force-vision
+result: pipeline completed but Vision calls failed under sandbox network restrictions
+failure: WinError 10013 socket access denied
+rows extracted: 0
+transaction_count: 0
+```
+
+Running the same command with external Gemini access requires explicit approval because statement chunk images are sent to Google Gemini.
 
 ## Next Required Test Milestone
 

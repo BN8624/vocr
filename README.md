@@ -43,6 +43,12 @@ The local acceptance PDFs are currently stored in `견본/` and are intentionall
 
 ## Success Criteria
 
+Current stepwise acceptance starts with one single-page sample:
+
+```bash
+python tests/regression_samples.py --samples-dir 견본 --issuer 현대카드 --pages 1 --limit 1
+```
+
 Primary acceptance command:
 
 ```bash
@@ -275,6 +281,12 @@ Priority:
 9. add selective 2-pass Vision
 10. keep review.html as an exception/debug screen
 11. maintain STATUS.md and TEST_REPORT.md
+```
+
+Current manifest command:
+
+```bash
+python tools/build_sample_manifest.py --samples 견본 --output output/sample_manifest_current.json
 ```
 
 ## Do Not Do

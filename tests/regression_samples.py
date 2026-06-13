@@ -19,6 +19,8 @@ def main() -> int:
     parser.add_argument("--with-vision", action="store_true", help="Call Vision API instead of dry-run mode.")
     parser.add_argument("--no-force", action="store_true", help="Reuse rendered page/chunk images when present.")
     parser.add_argument("--limit", type=int, default=0, help="Limit number of sample PDFs. 0 means all.")
+    parser.add_argument("--pages", type=int, default=0, help="Run only samples whose filename page count matches this value. 0 means all.")
+    parser.add_argument("--issuer", default="", help="Run only samples whose filename starts with this issuer/card-company name.")
     args = parser.parse_args()
 
     root = Path(__file__).resolve().parents[1]
@@ -27,6 +29,10 @@ def main() -> int:
     output_root.mkdir(parents=True, exist_ok=True)
 
     samples = find_sample_pdfs(samples_dir)
+    if args.pages > 0:
+        samples = [path for path in samples if expected_page_count(path) == args.pages]
+    if args.issuer:
+        samples = [path for path in samples if sample_issuer(path) == args.issuer]
     if args.limit > 0:
         samples = samples[: args.limit]
     if not samples:
@@ -87,6 +93,11 @@ def expected_page_count(pdf_path: Path) -> int:
     if not match:
         raise ValueError(f"Sample filename must end with _<page_count>: {pdf_path}")
     return int(match.group(1))
+
+
+def sample_issuer(pdf_path: Path) -> str:
+    match = re.match(r"^(.+)_(\d+)$", pdf_path.stem)
+    return match.group(1) if match else pdf_path.stem
 
 
 def run_sample(root: Path, pdf_path: Path, output_root: Path, dry_run: bool, force: bool) -> dict[str, Any]:
