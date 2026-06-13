@@ -2,232 +2,231 @@
 
 ## Project Mission
 
-Build a local Python tool that converts image-based Korean credit card statement PDFs into structured, reviewable data and finally into Excel.
+Build a local Python tool that automatically converts image-based Korean credit card statement PDFs into structured Excel files.
 
-This project must not rely on traditional OCR as the primary extraction method. Previous attempts with OCR failed on complex statement tables. The core strategy is:
+The current acceptance target is:
 
 ```text
-Python = image preparation, chunking, caching, validation, review UI, Excel export
-Vision LLM = visually read table chunks and return rows/cells JSON
-Text LLM = optional post-processing and anomaly detection
-User = confirm column mapping and review only uncertain cases
+3 issuers x single-page / three-page / multi-page local statement samples
+-> automatic Vision-first extraction
+-> validation and automation scoring
+-> result.xlsx
 ```
 
-The first reliable deliverable is not Excel. The first reliable deliverable is `review.html`, where a non-developer user can visually inspect page images, chunk images, extracted rows, column mappings, validation warnings, and only then export Excel.
+`review.html` is not the main product and not a screen for reviewing every row. It is an exception/debug screen for finding why automatic conversion failed.
 
----
+## Core Strategy
+
+```text
+Python = image preparation, chunking, caching, validation, automation metrics, Excel export
+Vision LLM = visually read table chunks and return strict rows/cells JSON
+Profiles = stabilize recurring issuer layouts
+User = intervene only for rare hard failures
+```
+
+The first reliable deliverable is automatic Excel conversion across the acceptance samples, measured by regression reports and automation metrics.
 
 ## Non-Negotiable Design Rules
 
 1. **Do not build an OCR-first pipeline.**
    - OCR may be used only as an auxiliary heuristic.
-   - The primary extraction path is image chunk → Vision LLM → JSON rows/cells.
+   - The primary extraction path is image chunk -> Vision LLM -> JSON rows/cells.
 
-2. **Do not hard-code card-company-specific parsers as the main strategy.**
-   - Korean card statements vary by card company, personal/corporate/business type, and occasional layout changes.
-   - Use a generic table-reading engine plus saved user mapping profiles.
+2. **Do not hard-code full card-company parsers as the main strategy.**
+   - Use generic visual table extraction plus reusable issuer/layout profiles.
+   - Profiles may encode layout signatures, column roles, and value patterns.
 
 3. **Do not trust amount checksum alone.**
-   - A prior conversion had correct totals while `card_name` and `merchant` columns were mixed.
-   - Validation must include both amount checks and text/column contamination checks.
+   - Correct totals can still hide swapped `card_label` and `merchant` columns.
+   - Validation must include text/column contamination checks and row-level risk scoring.
 
 4. **Always preserve raw cells.**
-   - Never keep only normalized fields.
    - Every extracted row must retain `cells[]`, source file, page, chunk id, and local row index.
+   - Normalized rows must remain auditable from original cells.
 
 5. **Avoid precision-coordinate dependency.**
-   - Exact table coordinates are brittle with scanned PDFs and changing layouts.
-   - Use approximate chunks with overlap, header+body composite images, content-based merging, and human review.
+   - Exact coordinates are brittle with scanned PDFs and layout changes.
+   - Use approximate chunks with overlap, content-based merging, profiles, and measured recovery.
 
 6. **Cache every expensive or external step.**
-   - Rendered page images, chunk images, Vision LLM responses, merged rows, validation results, and user mappings must be saved.
+   - Rendered images, chunk images, Vision responses, merged rows, validation outputs, automation summaries, and profiles must be saved.
    - Re-running should resume from cache unless explicitly forced.
 
-7. **Expose results visually.**
-   - The user is a vibe-coder, not a Python developer.
-   - Every major stage should produce a file or HTML view that can be inspected without reading code.
+7. **Measure automation quality.**
+   - `result.xlsx` existing is not enough.
+   - Track auto acceptance rate, manual review rate, hard review rate, blocked rows, and failure reasons.
 
 8. **Mark uncertainty instead of guessing.**
-   - If a field, row, total, or mapping is ambiguous, use `needs_review=true` and explain why.
-   - Do not silently fabricate merchant names or amounts.
+   - Do not silently fabricate merchant names, amounts, dates, or totals.
+   - Distinguish warning-level uncertainty from hard-review or blocked failures.
 
----
+## Acceptance Set
 
-## Expected Repository Shape
+The local acceptance PDFs are ignored by Git and currently live in `견본/`.
+
+The intended P0 acceptance set is:
 
 ```text
-.
-├── AGENTS.md
-├── PLAN.md
-├── README.md
-├── config.yaml
-├── requirements.txt
-├── main.py
-├── src/
-│   ├── page_renderer.py
-│   ├── chunk_builder.py
-│   ├── vision_extractor.py
-│   ├── row_merger.py
-│   ├── normalizer.py
-│   ├── validator.py
-│   ├── review_builder.py
-│   ├── profile_store.py
-│   └── excel_exporter.py
-├── prompts/
-│   ├── vision_extract_table.md
-│   └── vision_repair_rows.md
-├── profiles/
-│   └── README.md
-├── samples/
-│   └── .gitkeep
-├── output/
-│   └── .gitkeep
-└── tests/
-    └── .gitkeep
+3 issuers
+1-page sample per issuer
+3-page sample per issuer
+multi-page sample per issuer
 ```
 
-Do not create a large monolithic script. Implement small modules with testable functions.
+The current local filenames are:
 
----
+```text
+삼성카드_1.pdf, 삼성카드_3.pdf, 삼성카드_7.pdf
+신한카드_1.pdf, 신한카드_3.pdf, 신한카드_11.pdf
+현대카드_1.pdf, 현대카드_3.pdf, 현대카드_8.pdf
+```
 
-## Initial Implementation Priority
+P0 should standardize sample discovery through `samples/sample_manifest.json`, but implementation must respect the current local `견본/` acceptance set until the manifest workflow is complete.
 
-Implement in this order:
+## Completion Metrics
 
-1. `page_renderer.py`
-   - PDF → high-resolution PNG pages.
+P0 target:
 
-2. `chunk_builder.py`
-   - Page image → overlapping body chunks.
-   - Each body chunk should include the table header area at the top.
+```text
+all acceptance samples produce result.xlsx
+all acceptance samples produce review.html
+all acceptance samples produce merged/automation_summary.json
+blocked samples == 0
+blocked rows == 0
+average hard_review_rate <= 5%
+average manual_review_rate <= 15%
+```
 
-3. `review_builder.py`
-   - Generate `output/review.html` showing original pages and chunks.
-   - No LLM API call yet.
+P1 target:
 
-4. `vision_extractor.py`
-   - Send each chunk image to Gemini Vision and save strict JSON.
+```text
+average hard_review_rate <= 3%
+average manual_review_rate <= 10%
+```
 
-5. `row_merger.py`
-   - Merge overlapping chunk results by content similarity.
-   - Do not blindly delete duplicates.
+Final target:
 
-6. `validator.py`
-   - Amount checksum, row consistency, column contamination, date/amount sanity checks.
+```text
+average hard_review_rate <= 1%
+average manual_review_rate <= 5%
+silent_error_count == 0
+```
 
-7. `profile_store.py`
-   - Save and reuse user-confirmed column mappings.
+## Row Automation Contract
 
-8. `excel_exporter.py`
-   - Export only after review and validation data exist.
+Validated transaction rows should move beyond a single `needs_review` flag.
 
----
+Use:
 
-## Data Contract
+```text
+auto_confirmed
+auto_confirmed_with_warning
+needs_light_review
+needs_hard_review
+blocked
+```
 
-Use JSONL or JSON files for intermediate data. The canonical row shape is:
+Each row should eventually include:
 
 ```json
 {
-  "schema_version": "1.0",
-  "source": {
-    "file": "card.pdf",
-    "page": 1,
-    "chunk_id": "page_001_chunk_02",
-    "local_row_index": 7,
-    "statement_type": "unknown_or_profile_id",
-    "period": ""
-  },
-  "raw": {
-    "header": ["이용일", "이용카드", "이용가맹점", "이용금액", "결제원금"],
-    "cells": ["03.14", "the Purple", "쿠팡", "38,200", "38,200"],
-    "line_text": "",
-    "image_ref": "output/chunks/page_001_chunk_02.png"
-  },
-  "transaction": {
-    "date": "03.14",
-    "card_label": "the Purple",
-    "merchant": "쿠팡",
-    "amount": 38200,
-    "billing_amount": 38200,
-    "transaction_type": "일시불"
-  },
-  "extra_fields": {},
-  "quality": {
-    "needs_review": false,
-    "review_reason": "",
-    "confidence_note": ""
+  "automation": {
+    "row_status": "auto_confirmed",
+    "confidence_score": 0.97,
+    "risk_level": "low",
+    "signals": {},
+    "reasons": []
   }
 }
 ```
 
-Core fields should stay stable. New statement-specific fields go to `extra_fields` and/or the raw cells sheet, not into an ever-growing core schema.
+## Review UI Rules
 
----
+`review.html` must be an exception/debug screen.
 
-## Excel Output Contract
+Show first:
 
-Final Excel should contain at least these sheets:
+```text
+blocked rows
+needs_hard_review rows
+checksum mismatch
+duplicate conflicts
+profile conflicts
+amount candidate conflicts
+automation metrics
+```
 
-1. `전체명세`
-   - Human-friendly transaction table.
+Hide by default:
 
-2. `검산`
-   - Source totals vs extracted totals vs difference.
+```text
+auto_confirmed rows
+auto_confirmed_with_warning rows
+normal chunks/pages
+raw JSON file links unless under technical details
+```
 
-3. `원본셀`
-   - Raw `cells[]` by source file/page/chunk/row.
+If a user must scroll through all rows or all pages, the UI is drifting away from the goal.
 
-4. `추가필드`
-   - Key-value style extra fields.
+## Output Contract
 
-5. `확인필요`
-   - Rows, chunks, or mappings that need manual review.
+Main output folder:
 
----
+```text
+output/<sample_name>/
+  pages/
+  chunks/
+  total_chunks/
+  cache/
+  merged/
+    rows_raw.jsonl
+    rows_merged.jsonl
+    merge_summary.json
+    mapping_suggestions.json
+    transactions.jsonl
+    transactions_validated.jsonl
+    validation_summary.json
+    validation_issues.json
+    automation_summary.json
+  review.html
+  result.xlsx
+  summary.json
+```
 
-## Validation Requirements
+Excel must contain at least:
 
-At minimum, implement these checks:
+```text
+전체명세
+검산
+원본셀
+추가필드
+확인필요
+```
 
-- Amount total matches selected source total.
-- Date column is date-like.
-- Amount columns are numeric-like.
-- Merchant column is not mostly numeric.
-- Card label column does not contain too many merchant-like long strings.
-- Row cell count is stable within a table group.
-- Duplicate detection from overlapping chunks is explainable.
-- Unknown or ambiguous rows are kept with `needs_review=true`, not discarded.
+## Priority Order
 
----
+Follow `newplan.md`. Current order:
 
-## API and Secret Handling
+```text
+1. sample manifest generation
+2. acceptance runner strengthening
+3. automation_summary.json
+4. row_status / confidence_score / risk_level
+5. stable issuer profile criteria
+6. automatic checksum candidate selection
+7. duplicate state refinement
+8. strict parsers and automatic recovery
+9. selective 2-pass Vision
+10. review.html exception/debug screen
+11. STATUS.md and TEST_REPORT.md
+```
 
-- Never hard-code API keys.
-- Read API keys from environment variables or `.env`, but do not commit `.env`.
-- Cache Vision API responses under `output/cache/`.
-- Include a dry-run mode that builds pages/chunks/review HTML without calling any external API.
+## Do Not Do
 
----
-
-## Coding Style
-
-- Prefer simple, explicit Python over clever abstractions.
-- Use type hints where helpful.
-- Use pathlib for file paths.
-- Write logs that a non-developer can understand.
-- Fail safely with clear messages.
-- Keep prompts in `prompts/`, not embedded deep inside code.
-
----
-
-## Definition of Done for Each Step
-
-A step is done only when:
-
-1. It can be run from the command line.
-2. It writes inspectable output under `output/`.
-3. It can resume without redoing completed expensive work.
-4. It has clear error messages.
-5. The user can verify progress visually or from a summary file.
-
+```text
+do not improve manual row review as the main solution
+do not treat many needs_review rows as acceptable
+do not call result.xlsx creation alone a success
+do not leave checksum selection manual if it can be scored safely
+do not change prompts without measuring regression metrics
+do not commit .env, output artifacts, local profiles, or sample PDFs
+```
