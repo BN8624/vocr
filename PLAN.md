@@ -35,6 +35,7 @@ Implemented:
 - Phase 7B: user-selected checksum total saved in `merged/review_state.json`
 - Phase 7C: column-level validation for date, amount, merchant, card label, and row cell-count distribution
 - Phase 7D: table-signature profile matching with auto/candidate thresholds
+- Phase 7E: review-state save refreshes validation summary from cached Vision results in the review server
 - Phase 8: Excel export to `result.xlsx`
 
 Generated Excel sheets:
@@ -185,6 +186,7 @@ Implemented checks include:
 - column-level validation catches table-wide contamination even when row totals look plausible
 - total-only chunks can capture summary totals without reprocessing every transaction body chunk
 - mapping profiles can match by table signature, not only exact header/group id
+- `serve_review.py` refreshes `validation_summary.json` immediately after saving a checksum choice when cached Vision and normalized transactions already exist
 
 Checksum status meanings:
 
@@ -246,4 +248,3 @@ Good next improvements:
 2. Split `review_builder.py` into template/static assets once behavior stabilizes.
 3. Add page-level crop/chunk adjustment controls for difficult pages.
 4. Add a small profile management CLI for listing/removing saved profiles.
-5. Add a review-state UI refresh flow so saved checksum choices can be applied without rerunning the CLI manually.

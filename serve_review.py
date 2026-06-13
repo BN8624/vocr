@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
+
+from src.normalizer import load_normalization_output
+from src.validator import build_validation
+from src.vision_extractor import VisionResult
 
 
 MAX_BODY_BYTES = 1_000_000
@@ -47,6 +52,7 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
         try:
             payload = self._read_json_body(require_table_groups=False)
             saved_path = self._save_review_state(payload)
+            refresh = self._refresh_review_state_outputs(saved_path)
         except ValueError as exc:
             self._send_json({"ok": False, "error": str(exc)}, status=400)
             return
@@ -59,8 +65,46 @@ class ReviewRequestHandler(SimpleHTTPRequestHandler):
                 "ok": True,
                 "path": str(saved_path),
                 "filename": saved_path.name,
+                "refresh": refresh,
             }
         )
+
+    def _refresh_review_state_outputs(self, state_path: Path) -> dict[str, Any]:
+        merged_dir = state_path.parent
+        output_dir = merged_dir.parent
+        normalization_output = load_normalization_output(merged_dir)
+        if not normalization_output:
+            return {
+                "ok": False,
+                "message": "정규화 결과가 없어 검산을 즉시 갱신하지 못했습니다. CLI를 다시 실행해 주세요.",
+            }
+
+        vision_results = _load_cached_vision_results(output_dir / "cache")
+        validation_output = build_validation(
+            normalization_output=normalization_output,
+            vision_results=vision_results,
+            merged_dir=merged_dir,
+            expected_chunk_count=_expected_chunk_count(output_dir),
+            review_state=_read_json_object(state_path),
+        )
+        if not validation_output:
+            return {
+                "ok": False,
+                "message": "검증 결과를 즉시 갱신하지 못했습니다. CLI를 다시 실행해 주세요.",
+            }
+
+        _update_run_summary(output_dir, validation_output)
+        checksum = validation_output.summary.get("checksum", {})
+        if not isinstance(checksum, dict):
+            checksum = {}
+        return {
+            "ok": True,
+            "message": "검산 결과를 즉시 갱신했습니다.",
+            "checksum": checksum,
+            "checksum_status": validation_output.checksum_status,
+            "checksum_difference": validation_output.checksum_difference,
+            "validation_summary": str(validation_output.summary_path),
+        }
 
     def _read_json_body(self, require_table_groups: bool = True) -> dict[str, Any]:
         length_text = self.headers.get("Content-Length", "0")
@@ -210,6 +254,91 @@ def _safe_filename(value: str) -> str:
         if char.isalnum() or char in {"-", "_", "."}:
             allowed.append(char)
     return "".join(allowed)
+
+
+def _load_cached_vision_results(cache_dir: Path) -> list[VisionResult]:
+    if not cache_dir.exists():
+        return []
+
+    results: list[VisionResult] = []
+    seen: set[str] = set()
+    for cache_path in sorted(cache_dir.glob("*.vision.json")):
+        data = _read_json_object(cache_path)
+        chunk_id = str(data.get("chunk_id") or _strip_known_suffix(cache_path.name, ".vision.json"))
+        seen.add(chunk_id)
+        results.append(
+            VisionResult(
+                chunk_id=chunk_id,
+                page_number=_page_number(chunk_id, data.get("page")),
+                cache_path=cache_path,
+                status="cached",
+                data=data,
+                reused=True,
+            )
+        )
+
+    for error_path in sorted(cache_dir.glob("*.error.json")):
+        chunk_id = _strip_known_suffix(error_path.name, ".error.json")
+        if chunk_id in seen:
+            continue
+        results.append(
+            VisionResult(
+                chunk_id=chunk_id,
+                page_number=_page_number(chunk_id, None),
+                cache_path=cache_dir / f"{chunk_id}.vision.json",
+                status="error",
+                data=None,
+                error_path=error_path,
+                raw_text_path=None,
+                reused=True,
+            )
+        )
+    return results
+
+
+def _expected_chunk_count(output_dir: Path) -> int | None:
+    summary = _read_json_object(output_dir / "summary.json")
+    value = summary.get("chunk_count")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def _update_run_summary(output_dir: Path, validation_output: Any) -> None:
+    summary_path = output_dir / "summary.json"
+    summary = _read_json_object(summary_path)
+    if not summary:
+        return
+    summary["checksum_status"] = validation_output.checksum_status
+    summary["validation_issue_row_count"] = validation_output.issue_row_count
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _read_json_object(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _strip_known_suffix(name: str, suffix: str) -> str:
+    return name[: -len(suffix)] if name.endswith(suffix) else Path(name).stem
+
+
+def _page_number(chunk_id: str, value: Any) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    match = re.search(r"page_(\d+)", chunk_id)
+    if match:
+        return int(match.group(1))
+    return 0
 
 
 def _is_within(path: Path, parent: Path) -> bool:

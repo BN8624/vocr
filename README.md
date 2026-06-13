@@ -157,7 +157,7 @@ Excel 시트:
 - `원본 합계 없음`: 전체 청크를 봤지만 원본 합계 후보를 찾지 못함
 - `합계 확인 미완료`: 일부 청크만 Vision 결과가 있어 다음 페이지/청크의 합계를 아직 못 봤을 수 있음
 
-`review.html`의 검증 결과에서 원본 합계 후보를 선택하고 `검산 기준 저장`을 누르면 현재 output의 `merged/review_state.json`에 저장됩니다. 저장 후 같은 명령을 다시 실행하면 선택된 합계만 기준으로 검산합니다.
+`review.html`의 검증 결과에서 원본 합계 후보를 선택하고 `검산 기준 저장`을 누르면 현재 output의 `merged/review_state.json`에 저장됩니다. `serve_review.py`로 열어 둔 상태라면 저장 직후 `validation_summary.json`과 화면의 검산 요약이 바로 갱신됩니다. Excel 파일은 같은 명령을 다시 실행하면 선택된 합계 기준으로 다시 생성됩니다.
 
 열 품질 검사는 행 하나가 아니라 표 전체의 패턴을 봅니다. 날짜 성공률, 금액 성공률, 가맹점 숫자 비율, 가맹점 빈 값 비율, 카드명 고유값/긴 텍스트 비율, 행별 셀 개수 분포가 `validation_summary.json`의 `column_quality`에 기록되고 `review.html`과 Excel `확인필요` 시트에 표시됩니다.
 

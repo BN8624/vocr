@@ -305,7 +305,11 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
     parts = [
         '<section class="validation-panel">',
         "<h2>검증 결과</h2>",
-        f'<p class="{checksum_class}">{escape(_checksum_label(checksum_status))}: {escape(checksum_message)}</p>',
+        (
+            f'<p id="checksum-status-line" class="{checksum_class}" '
+            f'data-checksum-status="{escape(checksum_status)}">'
+            f'{escape(_checksum_label(checksum_status))}: {escape(checksum_message)}</p>'
+        ),
         (
             '<p class="mapping-ok">행 단위 이상 징후는 없습니다.</p>'
             if row_ok
@@ -321,7 +325,7 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
         f"<div><strong>문제 행</strong><span>{validation_output.issue_row_count}</span></div>",
         f"<div><strong>문제 수</strong><span>{validation_output.row_issue_count}</span></div>",
         f"<div><strong>열 문제</strong><span>{column_issue_count}</span></div>",
-        f"<div><strong>검산</strong><span>{escape(_checksum_label(checksum_status))}</span></div>",
+        f'<div><strong>검산</strong><span id="checksum-status-badge">{escape(_checksum_label(checksum_status))}</span></div>',
         "</div>",
         '<div class="merge-links">',
         _file_link(review_path, validation_output.validated_transactions_path, "transactions_validated.jsonl"),
@@ -520,7 +524,7 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
         '<button type="button" id="save-checksum-total">검산 기준 저장</button>'
         '<span id="checksum-message" class="note"></span>'
         "</div>"
-        '<p class="note">저장 후 같은 명령을 다시 실행하면 선택한 원본 합계만 기준으로 검산합니다.</p>'
+        '<p class="note">저장하면 서버가 현재 검산 요약을 바로 갱신합니다. Excel은 같은 명령을 다시 실행하면 새 기준으로 다시 생성됩니다.</p>'
         "</details>"
     )
 
@@ -897,6 +901,15 @@ def _script_block() -> str:
   const message = document.getElementById('mapping-message');
   const saveChecksumButton = document.getElementById('save-checksum-total');
   const checksumMessage = document.getElementById('checksum-message');
+  const checksumStatusLine = document.getElementById('checksum-status-line');
+  const checksumStatusBadge = document.getElementById('checksum-status-badge');
+  const checksumLabels = {
+    user_confirmed_total_matched: '검산 일치',
+    user_confirmed_total_mismatch: '검산 불일치',
+    no_user_total_selected: '검산 기준 미선택',
+    no_source_total: '원본 합계 없음',
+    incomplete_source_scan: '합계 확인 미완료'
+  };
 
   const collectPayload = (status) => {
     const groups = [...document.querySelectorAll('.mapping-group')].map(group => {
@@ -929,6 +942,21 @@ def _script_block() -> str:
     link.click();
     link.remove();
     URL.revokeObjectURL(url);
+  };
+
+  const updateChecksumStatus = (refresh) => {
+    if (!refresh || !refresh.ok || !refresh.checksum) return false;
+    const status = refresh.checksum_status || refresh.checksum.status || '';
+    const label = checksumLabels[status] || status || '검산 갱신';
+    const text = `${label}: ${refresh.checksum.message || refresh.message || ''}`;
+    if (checksumStatusLine) {
+      checksumStatusLine.textContent = text;
+      checksumStatusLine.dataset.checksumStatus = status;
+      checksumStatusLine.classList.toggle('mapping-ok', status === 'user_confirmed_total_matched');
+      checksumStatusLine.classList.toggle('merge-warning', status !== 'user_confirmed_total_matched');
+    }
+    if (checksumStatusBadge) checksumStatusBadge.textContent = label;
+    return true;
   };
 
   if (saveButton) {
@@ -990,7 +1018,12 @@ def _script_block() -> str:
         });
         const result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || 'save failed');
-        if (checksumMessage) checksumMessage.textContent = '저장했습니다. 같은 명령을 다시 실행하면 검산에 반영됩니다.';
+        const refreshed = updateChecksumStatus(result.refresh);
+        if (checksumMessage) {
+          checksumMessage.textContent = refreshed
+            ? '저장했고 현재 검산 요약도 갱신했습니다. Excel은 같은 명령을 다시 실행하면 갱신됩니다.'
+            : `저장했습니다. ${result.refresh?.message || '같은 명령을 다시 실행하면 검산에 반영됩니다.'}`;
+        }
       } catch (error) {
         if (checksumMessage) checksumMessage.textContent = '저장 서버가 없거나 실패했습니다. serve_review.py로 열어 주세요.';
       }
