@@ -121,16 +121,71 @@ def main() -> int:
         assert multi_page.summary["checksum"]["matched_total"]["pages"] == [1, 2]
         assert multi_page.summary["checksum"]["matched_field"] == "amount_total"
 
+        samsung_transactions_path = merged_dir / "samsung_transactions.jsonl"
+        samsung_rows = [
+            _transaction(
+                9950,
+                source_file="삼성카드_테스트.pdf",
+                cells=["01-01", "본인 301", "가맹점A", "10,000", "", "", "9,950", "", "", "청구할인", "-50"],
+                extra_fields={"이용금액": "10,000", "discount": ["청구할인", "-50"]},
+            ),
+            _transaction(
+                19900,
+                source_file="삼성카드_테스트.pdf",
+                cells=["01-02", "본인 301", "가맹점B", "20,000", "", "", "19,900", "", "", "청구할인", "-100"],
+                extra_fields={"이용금액": "20,000", "discount": ["청구할인", "-100"]},
+            ),
+        ]
+        _write_jsonl(samsung_transactions_path, samsung_rows)
+        samsung = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=samsung_transactions_path,
+                summary_path=summary_path,
+                transaction_count=2,
+                review_count=0,
+                amount_total=29850,
+                billing_amount_total=0,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("이용금액합계", 10000, page_number=1, chunk_id="page_001_chunk_01"),
+                _vision_total("이용금액합계", 20000, page_number=2, chunk_id="page_002_chunk_01"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=2,
+        )
+        assert samsung is not None
+        assert samsung.checksum_status == "auto_selected_total_matched"
+        assert samsung.summary["checksum"]["matched_total"]["label"] in {
+            "이용금액합계 합산",
+            "삼성 이용금액합계 합산",
+        }
+        assert samsung.summary["checksum"]["matched_field"] == "samsung_usage_amount_total"
+        assert samsung.summary["checksum"]["basis_totals"] == [
+            {"field": "samsung_usage_amount_total", "label": "삼성 거래 이용금액 합계", "amount": 30000}
+        ]
+
     print("checksum selection test passed")
     return 0
 
 
-def _transaction(amount: int) -> dict[str, object]:
+def _transaction(
+    amount: int,
+    source_file: str = "",
+    cells: list[str] | None = None,
+    extra_fields: dict[str, object] | None = None,
+) -> dict[str, object]:
+    row_cells = cells or ["03.14", "store", str(amount)]
     return {
-        "source": {"page": 1, "chunk_id": "page_001_chunk_01", "local_row_index": 1},
-        "raw": {"header": ["date", "merchant", "amount"], "cells": ["03.14", "store", str(amount)]},
+        "source": {
+            "file": source_file,
+            "page": 1,
+            "chunk_id": "page_001_chunk_01",
+            "local_row_index": 1,
+        },
+        "raw": {"header": ["date", "merchant", "amount"], "cells": row_cells},
         "transaction": {
-            "date": "03.14",
+            "date": row_cells[0],
             "card_label": "card",
             "merchant": "store",
             "amount": amount,
@@ -138,7 +193,7 @@ def _transaction(amount: int) -> dict[str, object]:
             "transaction_type": "",
         },
         "quality": {"needs_review": False, "review_reason": ""},
-        "extra_fields": {},
+        "extra_fields": extra_fields or {},
     }
 
 

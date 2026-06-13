@@ -474,6 +474,7 @@ def _checksum_summary(
 
     selected_total_id = _selected_total_id(review_state)
     selected_total = _find_selected_total(source_totals, selected_total_id)
+    basis_totals = _checksum_basis_targets(rows)
     auto_matches = _auto_match_candidates(amount_total, billing_amount_total, rows, source_totals)
 
     if not source_totals:
@@ -486,6 +487,7 @@ def _checksum_summary(
                 ),
                 "amount_total": amount_total,
                 "billing_amount_total": billing_amount_total,
+                "basis_totals": basis_totals,
                 "source_total_candidates": [],
                 "matched_total": None,
                 "selected_total": None,
@@ -499,6 +501,7 @@ def _checksum_summary(
             "message": "Vision 결과에서 비교할 원본 합계를 찾지 못했습니다.",
             "amount_total": amount_total,
             "billing_amount_total": billing_amount_total,
+            "basis_totals": basis_totals,
             "source_total_candidates": [],
             "matched_total": None,
             "selected_total": None,
@@ -517,6 +520,7 @@ def _checksum_summary(
             ),
             "amount_total": amount_total,
             "billing_amount_total": billing_amount_total,
+            "basis_totals": basis_totals,
             "source_total_candidates": source_totals,
             "matched_total": selected_total,
             "selected_total": selected_total,
@@ -535,6 +539,7 @@ def _checksum_summary(
                 "message": f"원본 합계 후보가 {auto_selected['field']}과 자동 일치했습니다.",
                 "amount_total": amount_total,
                 "billing_amount_total": billing_amount_total,
+                "basis_totals": basis_totals,
                 "source_total_candidates": source_totals,
                 "matched_total": selected,
                 "selected_total": selected,
@@ -549,6 +554,7 @@ def _checksum_summary(
             "message": "검산 기준 원본 합계를 아직 선택하지 않았습니다. 자동 일치는 참고로만 표시합니다.",
             "amount_total": amount_total,
             "billing_amount_total": billing_amount_total,
+            "basis_totals": basis_totals,
             "source_total_candidates": source_totals,
             "matched_total": auto_matches[0]["candidate"] if auto_matches else None,
             "selected_total": None,
@@ -564,6 +570,7 @@ def _checksum_summary(
             "message": "저장된 검산 기준 합계를 현재 Vision 후보에서 찾지 못했습니다. 다시 선택해 주세요.",
             "amount_total": amount_total,
             "billing_amount_total": billing_amount_total,
+            "basis_totals": basis_totals,
             "source_total_candidates": source_totals,
             "matched_total": auto_matches[0]["candidate"] if auto_matches else None,
             "selected_total": None,
@@ -577,7 +584,7 @@ def _checksum_summary(
     targets = [
         ("amount_total", amount_total),
         ("billing_amount_total", billing_amount_total),
-    ]
+    ] + [(str(target["field"]), int(target["amount"])) for target in basis_totals]
     for total_name, total_value in targets:
         if selected_amount == total_value:
             return {
@@ -585,6 +592,7 @@ def _checksum_summary(
                 "message": f"사용자가 선택한 원본 합계가 {total_name}과 일치합니다.",
                 "amount_total": amount_total,
                 "billing_amount_total": billing_amount_total,
+                "basis_totals": basis_totals,
                 "source_total_candidates": source_totals,
                 "matched_total": selected_total,
                 "selected_total": selected_total,
@@ -604,6 +612,7 @@ def _checksum_summary(
         "message": "사용자가 선택한 원본 합계와 정규화 합계가 일치하지 않습니다.",
         "amount_total": amount_total,
         "billing_amount_total": billing_amount_total,
+        "basis_totals": basis_totals,
         "source_total_candidates": source_totals,
         "matched_total": selected_total,
         "selected_total": selected_total,
@@ -841,6 +850,10 @@ def _auto_match_candidates(
     targets = [
         ("amount_total", amount_total),
         ("billing_amount_total", billing_amount_total),
+    ] + [
+        (str(target["field"]), int(target["amount"]))
+        for target in _checksum_basis_targets(rows)
+        if isinstance(target.get("amount"), int)
     ]
     matches: list[dict[str, Any]] = []
     candidates = source_totals + _aggregate_total_candidates(source_totals)
@@ -932,7 +945,106 @@ def _aggregate_total_candidates(source_totals: list[dict[str, Any]]) -> list[dic
                 "components": candidates,
             }
         )
+    aggregates.extend(_samsung_usage_total_aggregates(source_totals))
     return aggregates
+
+
+def _samsung_usage_total_aggregates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_page: dict[int, dict[str, Any]] = {}
+    for candidate in source_totals:
+        label = re.sub(r"\s+", "", str(candidate.get("label", "")).lower())
+        amount = candidate.get("amount")
+        page = int(candidate.get("page", 0) or 0)
+        if not page or not isinstance(amount, int):
+            continue
+        if "이용금액합계" not in label:
+            continue
+        if any(token in label for token in ("포인트", "적립", "남은금액")):
+            continue
+        current = by_page.get(page)
+        if current is None or amount > int(current.get("amount", 0)):
+            by_page[page] = candidate
+
+    candidates = [by_page[page] for page in sorted(by_page)]
+    if len(candidates) < 2:
+        return []
+    amount = sum(int(candidate["amount"]) for candidate in candidates)
+    label = "삼성 이용금액합계 합산"
+    return [
+        {
+            "id": _aggregate_total_id(label, amount, candidates),
+            "label": label,
+            "value_text": f"{amount:,}",
+            "amount": amount,
+            "chunk_id": "+".join(str(candidate.get("chunk_id", "")) for candidate in candidates),
+            "page": int(candidates[0].get("page", 0) or 0),
+            "pages": [int(candidate.get("page", 0) or 0) for candidate in candidates],
+            "needs_review": False,
+            "review_reason": "",
+            "components": candidates,
+        }
+    ]
+
+
+def _checksum_basis_targets(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    samsung_usage_total = _samsung_transaction_usage_total(rows)
+    if samsung_usage_total is None:
+        return []
+    return [
+        {
+            "field": "samsung_usage_amount_total",
+            "label": "삼성 거래 이용금액 합계",
+            "amount": samsung_usage_total,
+        }
+    ]
+
+
+def _samsung_transaction_usage_total(rows: list[dict[str, Any]]) -> int | None:
+    total = 0
+    count = 0
+    for row in rows:
+        if not _is_samsung_transaction_row(row):
+            continue
+        amount = _samsung_usage_amount(row)
+        if amount is None:
+            continue
+        total += amount
+        count += 1
+    return total if count else None
+
+
+def _is_samsung_transaction_row(row: dict[str, Any]) -> bool:
+    source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+    source_file = str(source.get("file", "")).lower()
+    if "삼성" in source_file or "samsung" in source_file:
+        return True
+    cells = [str(value) for value in row.get("raw", {}).get("cells", [])]
+    joined = " ".join(cells)
+    return "본인 301" in joined or "삼성카드" in joined
+
+
+def _samsung_usage_amount(row: dict[str, Any]) -> int | None:
+    extra_fields = row.get("extra_fields", {}) if isinstance(row.get("extra_fields"), dict) else {}
+    extra_amount = _parse_amount(extra_fields.get("이용금액"))
+    if extra_amount is not None:
+        return extra_amount
+
+    transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+    billed_amount = transaction.get("amount")
+    if not isinstance(billed_amount, int):
+        return None
+    cells = [str(value) for value in row.get("raw", {}).get("cells", [])]
+    split_card_shape = len(cells) > 2 and bool(re.fullmatch(r"\d{3,4}", cells[2].strip()))
+    pairs = ((4, 6), (4, 7), (4, 5)) if split_card_shape else ((3, 6), (3, 7), (3, 5), (3, 4))
+    for usage_index, billed_index in pairs:
+        if len(cells) <= max(usage_index, billed_index):
+            continue
+        if _parse_amount(cells[billed_index]) != billed_amount:
+            continue
+        usage_amount = _parse_amount(cells[usage_index])
+        if usage_amount is not None:
+            return usage_amount
+    return None
 
 
 def _aggregate_total_id(label: str, amount: int, candidates: list[dict[str, Any]]) -> str:
