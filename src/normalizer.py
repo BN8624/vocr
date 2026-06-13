@@ -96,6 +96,10 @@ def _row_exclusion_reason(row: dict[str, Any]) -> str:
     merge = row.get("merge", {})
     if str(merge.get("decision", "keep")) == "duplicate_excluded":
         return "duplicate_excluded"
+    if _is_benefit_usage_row(row):
+        return "benefit_usage"
+    if _is_dateless_benefit_adjustment(row):
+        return "dateless_benefit_adjustment"
     if _has_invalid_date_cell(row):
         return "invalid_date"
     if _has_misaligned_amount_review(row):
@@ -116,6 +120,25 @@ def _has_misaligned_amount_review(row: dict[str, Any]) -> bool:
         return False
     reason = str(quality.get("review_reason", "")).lower()
     return "misaligned" in reason or "truncated" in reason
+
+
+def _is_dateless_benefit_adjustment(row: dict[str, Any]) -> bool:
+    cells = [str(value).strip() for value in row.get("raw", {}).get("cells", [])]
+    if not cells or cells[0]:
+        return False
+    joined = " ".join(cells)
+    if not any(keyword in joined for keyword in ("포인트사용", "M포인트", "할인", "캐시백")):
+        return False
+    return any(_parse_amount(cell) is not None for cell in cells)
+
+
+def _is_benefit_usage_row(row: dict[str, Any]) -> bool:
+    cells = [str(value).strip() for value in row.get("raw", {}).get("cells", [])]
+    joined = " ".join(cells)
+    if not any(keyword in joined for keyword in ("M포인트 사용", "M포인트사용", "바우처", "포인트사용혜택")):
+        return False
+    money_values = [_parse_amount(cell) for cell in cells]
+    return any(isinstance(value, int) for value in money_values)
 
 
 def _exclude_normalized_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
@@ -291,7 +314,11 @@ def _normalize_row(
             review_reasons.append(reason)
         transaction[field] = amount
 
+    repaired = _repair_hyundai_shifted_rows(transaction, extra_fields, header, cells)
+    shinhan_repaired = _repair_shinhan_amount_rows(transaction, cells)
     review_reasons = _filter_auto_resolved_reasons(review_reasons, transaction, cells)
+    if repaired or shinhan_repaired:
+        review_reasons = _filter_repaired_hyundai_reasons(review_reasons)
 
     if not transaction.get("date"):
         review_reasons.append("날짜 열을 확정하지 못했습니다.")
@@ -308,6 +335,147 @@ def _normalize_row(
     return normalized
 
 
+def _repair_shinhan_amount_rows(transaction: dict[str, Any], cells: list[str]) -> bool:
+    if len(cells) < 6:
+        return False
+    primary_amount = _parse_amount(cells[3])
+    if primary_amount is None and len(cells) > 4:
+        primary_amount = _parse_amount(cells[4])
+    if primary_amount is None:
+        return False
+    amount = transaction.get("amount")
+    source_text = cells[5].strip()
+    if amount == 0 and primary_amount != 0:
+        transaction["amount"] = primary_amount
+        return True
+    if isinstance(amount, int) and abs(amount) > 100_000_000 and "/" in source_text:
+        transaction["amount"] = primary_amount
+        return True
+    return False
+
+
+def _repair_hyundai_shifted_rows(
+    transaction: dict[str, Any],
+    extra_fields: dict[str, Any],
+    header: list[str],
+    cells: list[str],
+) -> bool:
+    if _repair_hyundai_owner_card_row(transaction, extra_fields, cells):
+        return True
+    if _repair_hyundai_amount_shift_row(transaction, header, cells):
+        return True
+    if _repair_hyundai_direct_amount_row(transaction, cells):
+        return True
+    return _repair_hyundai_small_amount_with_billing(transaction)
+
+
+def _repair_hyundai_owner_card_row(
+    transaction: dict[str, Any],
+    extra_fields: dict[str, Any],
+    cells: list[str],
+) -> bool:
+    if len(cells) < 8 or cells[1].strip() != "본인":
+        return False
+
+    card = cells[2].strip()
+    if card.upper() == "ZERO" and len(cells) >= 9 and "포인트형" in cells[3]:
+        card_label = "본인 ZERO 포인트형"
+        merchant = cells[4].strip()
+        amount_index = 5
+    elif _looks_like_card_token(card):
+        card_label = f"본인 {card}"
+        merchant = cells[3].strip()
+        amount_index = 4
+    else:
+        return False
+
+    amount = _parse_amount(cells[amount_index])
+    billing_amount = _parse_amount(cells[-1])
+    if amount is None:
+        return False
+
+    transaction["card_label"] = card_label
+    transaction["merchant"] = merchant
+    transaction["amount"] = amount
+    if billing_amount is not None:
+        transaction["billing_amount"] = billing_amount
+    transaction["transaction_type"] = ""
+    if amount_index + 1 < len(cells) - 1 and cells[amount_index + 1].strip():
+        extra_fields["적립률"] = cells[amount_index + 1].strip()
+    if amount_index + 2 < len(cells) - 1 and cells[amount_index + 2].strip():
+        extra_fields["points"] = cells[amount_index + 2].strip()
+    return True
+
+
+def _repair_hyundai_amount_shift_row(
+    transaction: dict[str, Any],
+    header: list[str],
+    cells: list[str],
+) -> bool:
+    joined_header = "|".join(header)
+    if "실제원금" not in joined_header and "할부/회차" not in joined_header:
+        return False
+    if transaction.get("amount") is not None or len(cells) < 5:
+        return False
+    amount = _parse_amount(cells[4])
+    billing_amount = _parse_amount(cells[-1])
+    if isinstance(amount, int) and isinstance(billing_amount, int) and abs(amount) < 1000 <= abs(billing_amount):
+        amount = billing_amount
+    if amount is None:
+        return False
+    transaction["amount"] = amount
+    if billing_amount is not None:
+        transaction["billing_amount"] = billing_amount
+    if transaction.get("transaction_type") == cells[4]:
+        transaction["transaction_type"] = ""
+    return True
+
+
+def _repair_hyundai_direct_amount_row(transaction: dict[str, Any], cells: list[str]) -> bool:
+    if transaction.get("amount") is not None or len(cells) < 4:
+        return False
+    if not transaction.get("date") or not transaction.get("card_label") or not transaction.get("merchant"):
+        return False
+    amount = _parse_amount(cells[3])
+    if amount is None:
+        return False
+    transaction["amount"] = amount
+    if len(cells) >= 8:
+        billing_amount = _parse_amount(cells[7])
+        if billing_amount is not None:
+            transaction["billing_amount"] = billing_amount
+    return True
+
+
+def _repair_hyundai_small_amount_with_billing(transaction: dict[str, Any]) -> bool:
+    amount = transaction.get("amount")
+    billing_amount = transaction.get("billing_amount")
+    if not isinstance(amount, int) or not isinstance(billing_amount, int):
+        return False
+    if abs(amount) >= 1000 or abs(billing_amount) < 10000:
+        return False
+    transaction["amount"] = billing_amount
+    return True
+
+
+def _looks_like_card_token(value: str) -> bool:
+    text = value.strip().lower()
+    return bool(text) and any(token in text for token in ("purple", "zero", "카드", "포인트형", "하이패스"))
+
+
+def _filter_repaired_hyundai_reasons(reasons: list[str]) -> list[str]:
+    auto_resolved = (
+        "열 매핑 확인 필요",
+        "amount 후보",
+        "amount 값을 숫자로 읽지 못했습니다",
+        "amount 일부 값을 숫자로 읽지 못했습니다",
+        "merchant 후보",
+        "가맹점 열을 확정하지 못했습니다",
+        "이용금액을 숫자로 확정하지 못했습니다",
+    )
+    return [reason for reason in reasons if not any(token in reason for token in auto_resolved)]
+
+
 def _filter_auto_resolved_reasons(
     reasons: list[str],
     transaction: dict[str, Any],
@@ -315,6 +483,12 @@ def _filter_auto_resolved_reasons(
 ) -> list[str]:
     filtered: list[str] = []
     for reason in reasons:
+        if _is_samsung_repaired_shape(cells) and isinstance(transaction.get("amount"), int):
+            if any(token in reason for token in ("col_4", "col_8", "col_9", "col_11", "amount ", "merchant ")):
+                continue
+        if _is_shinhan_amount_shape(cells) and isinstance(transaction.get("amount"), int):
+            if any(token in reason for token in ("col_4", "col_6", "col_8", "col_10", "amount ", "Amount split", "Multiple entries", "dup_")):
+                continue
         if _amount_optional_transaction(transaction, cells) and (
             "M 포인트 사용 행" in reason or "이용금액을 숫자로 확정하지 못했습니다" in reason
         ):
@@ -325,8 +499,32 @@ def _filter_auto_resolved_reasons(
             and isinstance(transaction.get("amount"), int)
         ):
             continue
+        if any(token in reason for token in ("Formatting of negative row", "Potential typo", "Data alignment")) and (
+            isinstance(transaction.get("amount"), int) or _amount_optional_transaction(transaction, cells)
+        ):
+            continue
         filtered.append(reason)
     return filtered
+
+
+def _is_samsung_repaired_shape(cells: list[str]) -> bool:
+    if len(cells) < 10:
+        return False
+    has_standard_amounts = _parse_amount(cells[3]) is not None and (
+        _parse_amount(cells[6]) is not None or (len(cells) > 7 and _parse_amount(cells[7]) is not None)
+    )
+    has_split_card_amounts = len(cells) == 10 and _parse_amount(cells[4]) is not None and _parse_amount(cells[6]) is not None
+    if not has_standard_amounts and not has_split_card_amounts:
+        return False
+    return bool(cells[1].strip())
+
+
+def _is_shinhan_amount_shape(cells: list[str]) -> bool:
+    if len(cells) < 6:
+        return False
+    return bool(cells[0].strip() and cells[1].strip() and cells[2].strip()) and (
+        _parse_amount(cells[3]) is not None or _parse_amount(cells[4]) is not None or _parse_amount(cells[5]) is not None
+    )
 
 
 def _mapping_index(mapping_output: MappingOutput) -> dict[str, dict[int, dict[str, Any]]]:

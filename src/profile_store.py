@@ -278,6 +278,7 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
         )
 
     _repair_shifted_card_statement_columns(columns)
+    _repair_hyundai_point_statement_columns(columns)
     _repair_installment_statement_columns(columns)
     _repair_samsung_billing_statement_columns(columns)
     _mark_review_columns(columns)
@@ -420,6 +421,29 @@ def _repair_installment_statement_columns(columns: list[dict[str, Any]]) -> None
             )
 
 
+def _repair_hyundai_point_statement_columns(columns: list[dict[str, Any]]) -> None:
+    headers = [_norm(str(column.get("header", ""))) for column in columns]
+    joined = "|".join(headers)
+    if "이용금액" not in joined or not any("적립" in header for header in headers):
+        return
+
+    for index, header in enumerate(headers):
+        if header in {"일자", "날짜", "이용일"}:
+            _set_column_role(columns[index], "date", "high", "현대카드 포인트형 표의 날짜 열로 보정합니다.")
+        elif header in {"카드명", "이용카드"}:
+            _set_column_role(columns[index], "card_label", "high", "현대카드 포인트형 표의 카드명 열로 보정합니다.")
+        elif header in {"가맹점명", "이용가맹점"}:
+            _set_column_role(columns[index], "merchant", "high", "현대카드 포인트형 표의 가맹점 열로 보정합니다.")
+        elif header == "이용금액":
+            _set_column_role(columns[index], "amount", "high", "현대카드 포인트형 표의 이용금액 열로 보정합니다.")
+        elif "청구금액" in header:
+            _set_column_role(columns[index], "billing_amount", "high", "현대카드 포인트형 표의 청구금액 열로 보정합니다.")
+        elif "적립률" in header or "적립율" in header:
+            _set_column_role(columns[index], "extra", "medium", "포인트 적립률은 검산 핵심 금액에서 제외합니다.")
+        elif "적립포인트" in header or "적립예정" in header:
+            _set_column_role(columns[index], "points", "medium", "적립 포인트는 이용금액과 분리합니다.")
+
+
 def _repair_samsung_billing_statement_columns(columns: list[dict[str, Any]]) -> None:
     headers = [_norm(str(column.get("header", ""))) for column in columns]
     joined = "|".join(headers)
@@ -427,7 +451,7 @@ def _repair_samsung_billing_statement_columns(columns: list[dict[str, Any]]) -> 
         return
 
     has_card_number = any("카드번호" in header or "계약번호" in header or header == "이용카드" for header in headers)
-    has_merchant_column = any(header in {"가맹점", "가맹점명", "이용건", "이용내역", "이용가맹점명"} for header in headers)
+    has_merchant_column = any(header in {"가맹점", "가맹점명", "이용건", "이용내역", "이용가맹점", "이용가맹점명"} for header in headers)
 
     for index, header in enumerate(headers):
         if header == "이용자":
@@ -435,7 +459,7 @@ def _repair_samsung_billing_statement_columns(columns: list[dict[str, Any]]) -> 
                 _set_column_role(columns[index], "extra", "medium", "이용자 표기는 카드 식별 보조 필드로 남깁니다.")
             elif has_merchant_column:
                 _set_column_role(columns[index], "card_label", "high", "이용자 값이 본인/가족 및 카드 번호 표기로 안정적입니다.")
-        elif header in {"가맹점", "가맹점명", "이용건", "이용내역", "이용가맹점명"}:
+        elif header in {"가맹점", "가맹점명", "이용건", "이용내역", "이용가맹점", "이용가맹점명"}:
             _set_column_role(columns[index], "merchant", "high", "삼성카드 표의 이용처 열로 보정합니다.")
         elif "이용금액" in header:
             _set_column_role(columns[index], "extra", "medium", "삼성카드 표에서는 원거래 이용금액을 보조 원본 필드로 남깁니다.")
@@ -449,6 +473,8 @@ def _repair_samsung_billing_statement_columns(columns: list[dict[str, Any]]) -> 
             _set_column_role(columns[index], "extra", "medium", "검산 핵심 열이 아닌 보조 설명 필드로 보정합니다.")
         elif "적립금액" in header:
             _set_column_role(columns[index], "points", "medium", "포인트 적립 금액은 거래 이용금액과 분리합니다.")
+        elif "할인" in header or "혜택" in header:
+            _set_column_role(columns[index], "discount", "medium", "할인/혜택 금액 열을 이용금액과 분리합니다.")
         elif header == "금액" and index > 0 and any(token in headers[index - 1] for token in ("할인", "혜택", "상세")):
             _set_column_role(columns[index], "discount", "medium", "할인 설명 다음의 금액 열을 할인 금액으로 보정합니다.")
 

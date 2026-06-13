@@ -172,7 +172,12 @@ def _validate_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]
             issues[key].append(_issue("merchant_too_short", f"가맹점 값이 너무 짧습니다: {merchant}"))
         if card_label and _looks_like_merchant(card_label):
             issues[key].append(_issue("card_label_merchant_like", f"카드명 값이 가맹점처럼 보입니다: {card_label}"))
-        if expected_count is not None and len(cells) != expected_count:
+        if (
+            expected_count is not None
+            and len(cells) != expected_count
+            and not _is_hyundai_repaired_shape(cells)
+            and not _is_samsung_repaired_shape(cells)
+        ):
             issues[key].append(
                 _issue(
                     "row_cell_count_unstable",
@@ -705,8 +710,32 @@ def _is_numeric_merchant_exception(value: str) -> bool:
         return False
     if "택시" in text or "하이패스" in text or "usd" in text.lower():
         return True
+    if re.fullmatch(r"카페\d+", text):
+        return True
     utility_tokens = ("전기", "수신료", "도시가스", "관리비", "통신료")
     return any(token in text for token in utility_tokens) and bool(re.search(r"\d", text))
+
+
+def _is_hyundai_repaired_shape(cells: list[str]) -> bool:
+    if len(cells) >= 9 and len(cells) > 3 and cells[1].strip() == "본인":
+        card = cells[2].strip().lower()
+        if card == "zero" and "포인트형" in cells[3]:
+            return True
+    if len(cells) >= 7 and len(cells) > 4:
+        return _parse_amount(cells[4]) is not None and _parse_amount(cells[-1]) is not None
+    return False
+
+
+def _is_samsung_repaired_shape(cells: list[str]) -> bool:
+    if len(cells) < 10:
+        return False
+    has_standard_amounts = _parse_amount(cells[3]) is not None and (
+        _parse_amount(cells[6]) is not None or (len(cells) > 7 and _parse_amount(cells[7]) is not None)
+    )
+    has_split_card_amounts = len(cells) == 10 and _parse_amount(cells[4]) is not None and _parse_amount(cells[6]) is not None
+    if not has_standard_amounts and not has_split_card_amounts:
+        return False
+    return bool(cells[1].strip())
 
 
 def _is_benefit_only_row(transaction: dict[str, Any], cells: list[str]) -> bool:

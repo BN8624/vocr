@@ -87,3 +87,13 @@
 - 정규화 중복 제거를 `할부 기간/회차 + 원거래 이용금액 + 이번달 원금` 기준 변형 중복까지 확장했다. 같은 행이 겹침 청크에서 날짜나 가맹점 OCR만 흔들려도 대표행 1개만 남긴다.
 - Vision이 직접 `misaligned` 또는 `truncated`로 표시한 금액 리뷰 행은 거래 합계에서 제외하도록 했다.
 - 최종 `output/acceptance_shinhan_5` 결과는 `llm_calls=0`, `vision_ok=20`, `vision_errors=0`, `transaction_count=226`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `matched_total=총합계 합산 12,749,514`, `difference=0`이다.
+
+## 2026-06-13 현대카드_8, 삼성카드_7, 신한카드_11 진행 기록
+
+- 현대카드_8은 기존 페이지 캐시 32개를 사용해 `llm_calls=0`, `vision_ok=32`, `normalization_review_count=0`, `validation_issue_row_count=0`까지 확인했다.
+- 현대카드_8의 합계 후보는 아직 자동 선택되지 않는다. 현재 거래 합계는 34,210,388이고 총 합계 후보 합산과 차이가 남아 있어 문서 규칙으로 안전하게 확정하지 않았다.
+- 삼성카드_7은 삼성 청구 표에서 할인과 카드번호가 밀린 행을 보수적으로 보정해 `llm_calls=0`, `vision_ok=28`, `normalization_review_count=0`, `validation_issue_row_count=0`까지 확인했다.
+- 삼성카드_7의 합계 후보도 아직 자동 선택되지 않는다. 행 정확도와 검증은 정리됐지만 합계 후보 선택 로직은 별도 보정이 필요하다.
+- 신한카드_11은 전체 44개 Vision 캐시를 사용해 재실행했고 `llm_calls=0`, `vision_ok=44`, `normalization_review_count=0`, `validation_issue_row_count=0`까지 확인했다.
+- 신한카드_11에서는 0원으로 잘못 잡힌 부가경감·취소 행과 `377,176 / 40,000` 분할 표기 행을 원거래 금액 열 기준으로 보정했다.
+- 관련 테스트로 `python -X utf8 tests\test_profile_signature.py`, `python -X utf8 tests\test_validation_fixtures.py`, `python -X utf8 tests\test_checksum_selection.py`, `python -X utf8 tests\test_duplicate_representative.py`를 실행했고 모두 통과했다.
