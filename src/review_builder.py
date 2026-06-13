@@ -34,27 +34,58 @@ def build_review_html(
 
     vision_ok = sum(1 for result in vision_results or [] if result.data is not None)
     vision_errors = sum(1 for result in vision_results or [] if result.status == "error")
+    mapping_review_count = _mapping_review_count(mapping_output)
+    normalization_review_count = normalization_output.review_count if normalization_output else 0
+    validation_issue_count = validation_output.issue_row_count if validation_output else 0
+    checksum_status = validation_output.checksum_status if validation_output else "not_run"
+
+    needs_validation = bool(validation_output and _validation_needs_judgment(validation_output))
+    needs_attention = bool(mapping_review_count or normalization_review_count or validation_issue_count or needs_validation)
 
     html = [
+        '<header class="page-title">',
+        '<p class="eyebrow">AI SOP OCR</p>',
         f"<h1>{escape(title)}</h1>",
-        '<section class="summary">',
-        f"<div><strong>입력 PDF</strong><span>{escape(str(input_pdf))}</span></div>",
-        f"<div><strong>페이지</strong><span>{len(pages)}</span></div>",
-        f"<div><strong>청크</strong><span>{len(chunks)}</span></div>",
-        f"<div><strong>AI 추출</strong><span>성공 {vision_ok} / 오류 {vision_errors}</span></div>",
-        "</section>",
-        _review_tasks_block(
-            mapping_output,
-            validation_output,
-            excel_output,
+        f"<p class=\"source\">{escape(str(input_pdf))}</p>",
+        "</header>",
+        _summary_grid(
+            [
+                ("페이지", len(pages)),
+                ("청크", len(chunks)),
+                ("Vision", f"성공 {vision_ok} / 오류 {vision_errors}"),
+                ("거래 행", _transaction_count(normalization_output, validation_output)),
+                ("정규화 확인", normalization_review_count),
+                ("검증 이슈", validation_issue_count),
+                ("검산", _checksum_label(checksum_status)),
+            ]
         ),
     ]
-    if mapping_output and _mapping_needs_judgment(mapping_output):
-        html.append(_mapping_block(review_path, mapping_output))
-    if validation_output and _validation_needs_judgment(validation_output):
-        html.append(_validation_block(review_path, validation_output))
+
+    if not needs_attention:
+        html.append(
+            '<section class="panel empty-state" id="done">'
+            "<h2>확인 필요 없음</h2>"
+            "<p>자동 처리 결과와 산출 파일만 확인하면 됩니다.</p>"
+            "</section>"
+        )
+    else:
+        html.append('<section class="panel" id="attention"><h2>확인 필요</h2>')
+        if mapping_output and mapping_review_count:
+            html.append(_simple_mapping_block(review_path, mapping_output))
+        if normalization_review_count:
+            html.append(
+                '<article class="issue-card">'
+                f"<h3>정규화 확인 {normalization_review_count}건</h3>"
+                "<p>정규화 단계에서 보수적으로 확인이 필요한 행이 남아 있습니다.</p>"
+                "</article>"
+            )
+        if validation_output and needs_validation:
+            html.append(_simple_validation_block(review_path, validation_output))
+        html.append("</section>")
+
     if excel_output:
-        html.append(_excel_block(review_path, excel_output))
+        html.append(_simple_excel_block(review_path, excel_output))
+    html.append(_simple_file_links(review_path, merge_output, mapping_output, normalization_output, validation_output))
 
     review_path.write_text(
         _render_template(
@@ -67,6 +98,166 @@ def build_review_html(
     )
     return review_path
 
+def _summary_grid(items: list[tuple[str, object]]) -> str:
+    cards = []
+    for label, value in items:
+        cards.append(
+            '<div class="stat-card">'
+            f"<strong>{escape(str(label))}</strong>"
+            f"<span>{escape(str(value))}</span>"
+            "</div>"
+        )
+    return '<section class="summary">' + "".join(cards) + "</section>"
+
+
+def _transaction_count(
+    normalization_output: NormalizationOutput | None,
+    validation_output: ValidationOutput | None,
+) -> int:
+    if normalization_output:
+        return int(normalization_output.transaction_count)
+    if validation_output:
+        return int(validation_output.summary.get("transaction_count", 0) or 0)
+    return 0
+
+
+def _simple_mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
+    groups = []
+    for group in mapping_output.table_groups:
+        columns = []
+        for column in group.get("columns", []):
+            if not isinstance(column, dict) or not column.get("requires_review"):
+                continue
+            columns.append(_simple_mapping_column_card(column, mapping_output.option_labels))
+        if not columns:
+            continue
+        groups.append(
+            '<article class="issue-card mapping-group" '
+            f'data-group-id="{escape(str(group.get("group_id", "")))}">'
+            f"<h3>매핑 확인 {escape(str(group.get('group_id', 'table')))}</h3>"
+            f"<p>행 {escape(str(group.get('row_count', 0)))}개 기준으로 열 역할을 확인합니다.</p>"
+            '<div class="mapping-columns">'
+            f"{''.join(columns)}"
+            "</div>"
+            "</article>"
+        )
+    if not groups:
+        return ""
+    return (
+        '<div id="mapping" class="mapping-panel" '
+        f'data-mapping-path="{escape(str(mapping_output.suggestions_path))}" '
+        f'data-profile-dir="{escape(str(mapping_output.profile_dir))}">'
+        '<p class="note">불확실한 열 역할만 표시합니다.</p>'
+        f"{''.join(groups)}"
+        '<div class="mapping-actions">'
+        '<button type="button" id="save-mapping">매핑 저장</button>'
+        '<button type="button" id="download-mapping">JSON 내려받기</button>'
+        '<span id="mapping-message" class="note"></span>'
+        "</div>"
+        "</div>"
+    )
+
+
+def _simple_mapping_column_card(column: dict[str, Any], option_labels: dict[str, str]) -> str:
+    column_id = str(column.get("column_id", ""))
+    suggested = str(column.get("suggested_field", "extra"))
+    samples = column.get("sample_values", [])
+    sample_items = "".join(f"<li>{escape(str(value))}</li>" for value in samples[:5]) if isinstance(samples, list) else ""
+    options = []
+    for value, label in option_labels.items():
+        selected = " selected" if value == suggested else ""
+        options.append(f'<option value="{escape(str(value))}"{selected}>{escape(str(label))}</option>')
+    return (
+        '<div class="mapping-column needs-review" '
+        f'data-column-id="{escape(column_id)}" data-original-field="{escape(suggested)}">'
+        f"<h4>{escape(str(column.get('header') or column_id))}</h4>"
+        "<label><span>열 역할</span>"
+        f"<select>{''.join(options)}</select>"
+        "</label>"
+        f"<ul>{sample_items}</ul>"
+        "</div>"
+    )
+
+
+def _simple_validation_block(review_path: Path, validation_output: ValidationOutput) -> str:
+    summary = validation_output.summary
+    checksum = summary.get("checksum", {}) if isinstance(summary.get("checksum"), dict) else {}
+    column_quality = summary.get("column_quality", {}) if isinstance(summary.get("column_quality"), dict) else {}
+    column_issue_count = int(column_quality.get("issue_count", 0) or 0)
+    parts = [
+        '<article class="issue-card" id="validation">',
+        "<h3>검증 확인</h3>",
+        _summary_grid(
+            [
+                ("행 이슈", validation_output.issue_row_count),
+                ("열 품질 이슈", column_issue_count),
+                ("검산 상태", _checksum_label(str(checksum.get("status", validation_output.checksum_status)))),
+            ]
+        ),
+    ]
+    checksum_html = _checksum_details(review_path, review_path.parent / "merged" / "validation_summary.json", checksum)
+    if checksum_html:
+        parts.append(checksum_html)
+    if validation_output.issues_path.exists():
+        parts.append(_file_link(review_path, validation_output.issues_path, "검증 이슈 JSON"))
+    parts.append("</article>")
+    return "".join(parts)
+
+
+def _simple_excel_block(review_path: Path, excel_output: ExcelExportOutput) -> str:
+    links = [_file_link(review_path, excel_output.workbook_path, "result.xlsx")]
+    return (
+        '<section class="panel" id="excel">'
+        "<h2>산출 파일</h2>"
+        '<div class="file-links">'
+        f"{''.join(links)}"
+        "</div>"
+        "</section>"
+    )
+
+
+def _simple_file_links(
+    review_path: Path,
+    merge_output: RowMergeOutput | None,
+    mapping_output: MappingOutput | None,
+    normalization_output: NormalizationOutput | None,
+    validation_output: ValidationOutput | None,
+) -> str:
+    links = []
+    if merge_output:
+        links.extend(
+            [
+                _file_link(review_path, merge_output.rows_merged_path, "병합 행"),
+                _file_link(review_path, merge_output.summary_path, "병합 요약"),
+            ]
+        )
+    if mapping_output:
+        links.append(_file_link(review_path, mapping_output.suggestions_path, "매핑 제안"))
+    if normalization_output:
+        links.extend(
+            [
+                _file_link(review_path, normalization_output.transactions_path, "거래 JSONL"),
+                _file_link(review_path, normalization_output.summary_path, "정규화 요약"),
+            ]
+        )
+    if validation_output:
+        links.extend(
+            [
+                _file_link(review_path, validation_output.validated_transactions_path, "검증 거래 JSONL"),
+                _file_link(review_path, validation_output.summary_path, "검증 요약"),
+            ]
+        )
+    links = [link for link in links if link]
+    if not links:
+        return ""
+    return (
+        '<details class="panel technical-details">'
+        "<summary>기술 파일</summary>"
+        '<div class="file-links">'
+        f"{''.join(links)}"
+        "</div>"
+        "</details>"
+    )
 
 def _review_tasks_block(
     mapping_output: MappingOutput | None,
@@ -1078,4 +1269,3 @@ def _render_template(title: str, body: str, style_block: str, script_block: str)
 def _read_asset(filename: str) -> str:
     asset_path = Path(__file__).resolve().parents[1] / "static" / filename
     return asset_path.read_text(encoding="utf-8").strip()
-

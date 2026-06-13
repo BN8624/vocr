@@ -66,13 +66,12 @@ def main() -> int:
         assert "<title>Smoke Review</title>" in html
         assert "<style>" in html
         assert "<script>" in html
-        assert "변환 확인" in html
+        assert "AI SOP OCR" in html
+        assert "확인 필요 없음" in html
+        assert "페이지" in html
         assert 'id="mapping"' not in html
         assert 'data-workflow-target="mapping"' not in html
-        assert "data-workflow-target=\"pages\"" not in html
-        assert "const saveButton = document.getElementById('save-mapping')" in html
-        assert "activateWorkflowStep" in html
-        assert "원본 페이지 확인" not in html
+        assert 'data-workflow-target="pages"' not in html
         assert "{{ body }}" not in html
         assert "{{ script_block }}" not in html
 
@@ -93,8 +92,10 @@ def main() -> int:
         )
         html = review_path.read_text(encoding="utf-8")
         assert 'id="mapping"' in html
-        assert 'data-workflow-target="mapping"' in html
-        assert "PC에 매핑 저장" in html
+        assert "확인 필요" in html
+        assert "매핑 확인 table_1" in html
+        assert "매핑 저장" in html
+        assert 'data-workflow-target="mapping"' not in html
 
     print("review html smoke test passed")
     return 0
