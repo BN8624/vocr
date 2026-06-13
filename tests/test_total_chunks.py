@@ -11,6 +11,7 @@ from PIL import Image, ImageDraw
 
 from src.chunk_builder import build_total_chunks
 from src.page_renderer import PageImage
+from src.row_merger import build_row_outputs
 from src.validator import build_validation
 from src.normalizer import NormalizationOutput
 from src.vision_extractor import VisionResult
@@ -93,6 +94,27 @@ def main() -> int:
         assert filtered is not None
         assert filtered.summary["checksum"]["status"] == "no_source_total"
         assert filtered.summary["checksum"]["source_total_candidates"] == []
+
+        total_with_rows = _total_result()
+        total_with_rows.data["header"] = ["date", "merchant", "amount"]  # type: ignore[index]
+        total_with_rows.data["rows"] = [  # type: ignore[index]
+            {
+                "local_row_index": 1,
+                "cells": ["03.14", "store", "30,000"],
+                "line_text": "03.14 store 30,000",
+                "needs_review": False,
+                "review_reason": "",
+                "confidence_note": "",
+            }
+        ]
+        merge = build_row_outputs(
+            vision_results=[total_with_rows],
+            chunks=chunks,
+            input_pdf=root / "sample.pdf",
+            output_dir=root,
+            merged_dir=root / "merged_totals_only",
+        )
+        assert merge.raw_row_count == 0
 
     print("total chunks test passed")
     return 0

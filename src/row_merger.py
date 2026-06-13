@@ -130,6 +130,8 @@ def _collect_raw_rows(
     for result in vision_results:
         if not result.data:
             continue
+        if "_totals_" in result.chunk_id:
+            continue
 
         chunk = chunk_by_id.get(result.chunk_id)
         header = [str(value) for value in result.data.get("header", [])]

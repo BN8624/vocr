@@ -279,6 +279,7 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
 
     _repair_shifted_card_statement_columns(columns)
     _repair_installment_statement_columns(columns)
+    _repair_samsung_billing_statement_columns(columns)
     _mark_review_columns(columns)
 
     group = {
@@ -417,6 +418,33 @@ def _repair_installment_statement_columns(columns: list[dict[str, Any]]) -> None
                 "medium",
                 "혜택 구분 다음의 금액 열을 혜택/할인 금액으로 보정합니다.",
             )
+
+
+def _repair_samsung_billing_statement_columns(columns: list[dict[str, Any]]) -> None:
+    headers = [_norm(str(column.get("header", ""))) for column in columns]
+    joined = "|".join(headers)
+    if "입금하실금액" not in joined:
+        return
+
+    has_card_number = any("카드번호" in header or "계약번호" in header or header == "이용카드" for header in headers)
+    has_merchant_column = any(header in {"가맹점", "가맹점명", "이용건", "이용내역", "이용가맹점명"} for header in headers)
+
+    for index, header in enumerate(headers):
+        if header == "이용자":
+            if has_card_number:
+                _set_column_role(columns[index], "extra", "medium", "이용자 표기는 카드 식별 보조 필드로 남깁니다.")
+            elif has_merchant_column:
+                _set_column_role(columns[index], "card_label", "high", "이용자 값이 본인/가족 및 카드 번호 표기로 안정적입니다.")
+        elif header in {"가맹점", "가맹점명", "이용건", "이용내역", "이용가맹점명"}:
+            _set_column_role(columns[index], "merchant", "high", "삼성카드 표의 이용처 열로 보정합니다.")
+        elif "이용금액" in header:
+            _set_column_role(columns[index], "extra", "medium", "삼성카드 표에서는 원거래 이용금액을 보조 원본 필드로 남깁니다.")
+        elif "입금하실금액" in header:
+            _set_column_role(columns[index], "amount", "high", "삼성카드 표의 이달 입금 금액을 검산 기준 금액으로 보정합니다.")
+        elif header in {"입금후", "입금후남은금액", "비고", "적요", "결제종류"}:
+            _set_column_role(columns[index], "extra", "medium", "검산 핵심 열이 아닌 보조 설명 필드로 보정합니다.")
+        elif header == "금액" and index > 0 and any(token in headers[index - 1] for token in ("할인", "혜택", "상세")):
+            _set_column_role(columns[index], "discount", "medium", "할인 설명 다음의 금액 열을 할인 금액으로 보정합니다.")
 
 
 def _set_column_role(column: dict[str, Any], field: str, confidence: str, reason: str) -> None:
