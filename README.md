@@ -52,6 +52,18 @@ GOOGLE_API_KEY=your_key_here
 
 ## 기본 실행
 
+가장 단순한 실행은 아래 명령입니다. 변환이 끝나면 PC 링크, iPhone/Tailscale 링크, Excel 경로를 같이 보여줍니다. 8012 포트가 비어 있으면 리뷰 서버도 바로 켜집니다.
+
+```bash
+python review.py "samples/card.pdf"
+```
+
+출력 폴더는 기본적으로 `output/<PDF파일명>/`입니다. 서버를 켜지 않고 변환과 링크 출력만 하려면:
+
+```bash
+python review.py "samples/card.pdf" --no-server
+```
+
 API 호출 없이, 이미 캐시된 결과만 재사용하거나 페이지/청크/review만 만들려면:
 
 ```bash
