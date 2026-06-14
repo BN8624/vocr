@@ -10,6 +10,7 @@ from src.excel_exporter import ExcelExportOutput
 from src.normalizer import NormalizationOutput
 from src.page_renderer import PageImage
 from src.profile_store import MAPPING_OPTIONS, MappingOutput
+from src.reconciliation import load_section_reconciliation
 from src.row_merger import RowMergeOutput
 from src.validator import ValidationOutput
 from src.vision_extractor import VisionResult
@@ -232,6 +233,9 @@ def _simple_file_links(
                 _file_link(review_path, validation_output.summary_path, "검증 요약"),
             ]
         )
+        reconciliation_path = validation_output.summary_path.parent / "section_reconciliation.json"
+        if reconciliation_path.exists():
+            links.append(_file_link(review_path, reconciliation_path, "섹션 검산 요약"))
     links = [link for link in links if link]
     if not links:
         return ""
@@ -824,6 +828,8 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
     reason = "자동으로 확정할 수 있는 합계 후보가 없습니다."
     if auto_matches:
         reason = "자동 일치 후보가 있으나 우선순위가 충분히 안전하지 않습니다."
+    reconciliation = load_section_reconciliation(review_path.parent / "merged")
+    reconciliation_html = _section_reconciliation_summary(reconciliation)
     return (
         '<section class="judgment-card checksum-review">'
         "<h3>검산 보류</h3>"
@@ -835,6 +841,7 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
         f"<div><strong>청구 합계</strong><span>{escape(_format_amount(billing_amount_total))}</span></div>"
         f"<div><strong>원본 후보</strong><span>{len(candidates)}</span></div>"
         "</div>"
+        f"{reconciliation_html}"
         '<p class="note">후보 목록은 판단용 선택지가 아니라 기술 로그라서 접어두었습니다.</p>'
         '<details class="technical-details">'
         f"<summary>전체 원본 합계 후보 보기 ({len(candidates)}개)</summary>"
@@ -843,6 +850,36 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
         "</div>"
         "</details>"
         "</section>"
+    )
+
+
+def _section_reconciliation_summary(reconciliation: dict[str, Any] | None) -> str:
+    if not reconciliation:
+        return ""
+    pairs = [pair for pair in reconciliation.get("pairs", []) if isinstance(pair, dict)]
+    if not pairs:
+        return ""
+    rows = []
+    for pair in pairs:
+        pages = pair.get("pages", [])
+        page_text = "-".join(str(page) for page in pages) if isinstance(pages, list) else str(pages)
+        source_total = pair.get("source_total", {}) if isinstance(pair.get("source_total"), dict) else {}
+        source_amount = source_total.get("amount", "")
+        difference = pair.get("difference", "")
+        explanation = pair.get("explanation", {}) if isinstance(pair.get("explanation"), dict) else {}
+        rows.append(
+            '<div class="reason-item">'
+            f"<strong>{escape(page_text)}</strong>"
+            f"<span>원본 {escape(_format_amount(source_amount))} · 거래 {escape(_format_amount(pair.get('amount_total', '')))} · 차이 {escape(_format_amount(difference))} · {escape(str(explanation.get('status', '')))}</span>"
+            "</div>"
+        )
+    return (
+        '<details class="technical-details">'
+        f"<summary>페이지 묶음별 섹션 검산 보기 ({len(rows)}개)</summary>"
+        '<div class="reason-list">'
+        f"{''.join(rows)}"
+        "</div>"
+        "</details>"
     )
 
 

@@ -12,6 +12,7 @@ from src.excel_exporter import export_excel, load_excel_export
 from src.normalizer import build_transactions, load_normalization_output
 from src.page_renderer import render_pdf_pages
 from src.profile_store import build_mapping_suggestions, load_mapping_suggestions
+from src.reconciliation import write_section_reconciliation
 from src.review_builder import build_review_html
 from src.row_merger import build_row_outputs, load_merge_output
 from src.validator import build_validation, load_validation_output
@@ -394,6 +395,10 @@ def main() -> int:
         automation_summary_path = write_automation_summary(
             validation_output=validation_output,
             normalization_output=normalization_output,
+            merged_dir=output_dirs["merged"],
+        )
+        section_reconciliation_path = write_section_reconciliation(
+            validation_output=validation_output,
             merged_dir=output_dirs["merged"],
         )
 
