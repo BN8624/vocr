@@ -21,6 +21,10 @@ total_extraction:
   attach_header: true
   prompt_path: prompts/vision_extract_totals.md
 
+extraction:
+  mode: chunk            # chunk(기존 겹침 청크) | page(sop010식 페이지 단위 헤더키 JSON)
+  page_prompt_path: prompts/page_extract_jsonl.md
+
 vision:
   provider: gemini
   model: gemini-3.1-flash-lite
@@ -30,6 +34,10 @@ vision:
   timeout_seconds: 120
   cache_enabled: true
   max_retries: 4
+  concurrency: 2          # page 모드 동시 처리 페이지 수
+  rpm_limit: 10           # page 모드 RPM 한도(슬롯 = rpm_limit - 2)
+  max_output_tokens: 65535
+  adaptive_preprocess: true
 
 review:
   html_title: Card Statement Review

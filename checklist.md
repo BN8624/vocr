@@ -199,3 +199,16 @@
 - [x] dry-run 경로 page 오염 미교정 버그 수정(`load_cached_vision_results`에 `_with_required_defaults` 적용).
 - [x] 현대카드_8 재생성: 299건, billing 34,435,671, `auto_selected_total_matched`(carryover 87,740) 확인.
 - [x] 검산 회귀 테스트(리볼빙 일치 + 과추출 거부) 추가, 전체 16개 테스트 통과.
+
+## 2026-06-14 sop010 장점 이식 — 페이지 단위 헤더키 추출 (2단 구조)
+
+목표: `견본/sop010.html`의 강점(페이지 1장=1 호출, 헤더명 키 JSON, 헤더 힌트 전파, 적응형 전처리)을 1단 범용 거름망으로 이식하고, 기존 issuer 보정·검산·리볼빙은 2단으로 유지한다.
+
+- [x] 적응형 전처리 이식: `src/page_extractor.py._preprocess_page`(밝기 분석→contrast/brightness, PIL). 신규 경로 전용이라 기존 청크 입력 이미지는 불변.
+- [x] 페이지 단위 Vision 프롬프트 작성: `prompts/page_extract_jsonl.md`. 헤더명 키 JSON Lines + `__total`로 집계행 분리.
+- [x] 페이지 단위 추출기 추가: `src/page_extractor.py`. 페이지 1장=1 호출, 1쪽 단독 선처리→헤더 확정→2쪽~ 동시성2 + RPM 슬라이딩 큐, 헤더 힌트 전파, 캐시 키 `page_NNN`.
+- [x] 헤더명 키 → 헤더 순서 `cells` 배열 재구성: `_parse_jsonl`이 객체 키 순서와 무관하게 헤더 순서로 정렬. 기존 row_merger/normalizer 계약 유지.
+- [x] config 플래그 `extraction.mode`(chunk|page) + CLI `--extraction-mode`. 기본 chunk 유지. 기존 17개 테스트 + chunk 모드 회귀(현대카드_8 299건/auto matched) 통과.
+- [ ] 신한카드_11 page 모드 1차 검증(API 필요): `python main.py --input "견본/신한카드_11.pdf" --output output/acceptance_shinhan_11_page --extraction-mode page`. → verify: 행 정확도·열밀림·검산 지표 비교.
+- [ ] 기존 100% 샘플 page 모드 회귀 후 기본 모드 전환 판단.
+- [ ] 관련 테스트와 문서 갱신, 논리 단위 커밋.

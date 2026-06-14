@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.chunk_builder import build_chunks, build_total_chunks
+from src.page_extractor import extract_pages_with_vision, page_pseudo_chunks
 from src.automation import write_automation_summary
 from src.excel_exporter import export_excel, load_excel_export
 from src.normalizer import build_transactions, load_normalization_output
@@ -20,6 +21,7 @@ from src.vision_extractor import extract_chunks_with_vision, load_cached_vision_
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
+    "extraction": {"mode": "chunk", "page_prompt_path": "prompts/page_extract_jsonl.md"},
     "render": {"dpi": 300, "image_format": "png"},
     "chunking": {
         "header_ratio": 0.12,
@@ -54,6 +56,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "timeout_seconds": 120,
         "cache_enabled": True,
         "max_retries": 4,
+        "concurrency": 2,
+        "rpm_limit": 10,
+        "max_output_tokens": 65535,
+        "adaptive_preprocess": True,
     },
     "output": {
         "pages_dir": "pages",
@@ -241,6 +247,12 @@ def parse_args() -> argparse.Namespace:
         help="Skip the targeted summary/total extraction pass.",
     )
     parser.add_argument(
+        "--extraction-mode",
+        choices=["chunk", "page"],
+        default=None,
+        help="Override extraction.mode: chunk(겹침 청크) 또는 page(페이지 단위 헤더키).",
+    )
+    parser.add_argument(
         "--mapping-profile",
         action="append",
         default=[],
@@ -265,6 +277,8 @@ def main() -> int:
         return 2
     try:
         config = load_config(config_path)
+        if args.extraction_mode:
+            config.setdefault("extraction", {})["mode"] = args.extraction_mode
         output_dirs = ensure_output_dirs(output_dir, config)
         page_crop_profile = load_page_crop_profile(output_dirs["merged"])
 
@@ -277,64 +291,93 @@ def main() -> int:
             force=bool(args.force),
         )
 
-        logging.info("Building overlapping review chunks...")
-        chunks = build_chunks(
-            pages=pages,
-            chunks_dir=output_dirs["chunks"],
-            config=apply_page_crop_profile(config["chunking"], page_crop_profile, "chunking"),
-            force=bool(args.force),
-        )
-        total_chunks = []
-        if bool(config.get("total_extraction", {}).get("enabled", True)) and not args.skip_total_pass:
-            logging.info("Building targeted total review chunks...")
-            total_chunks = build_total_chunks(
+        extraction_mode = str(config.get("extraction", {}).get("mode", "chunk")).lower()
+
+        if extraction_mode == "page":
+            logging.info("Page-mode extraction: one Vision call per full page.")
+            review_chunks = page_pseudo_chunks(pages)
+            chunks = review_chunks
+            total_chunks = []
+
+            vision_results = []
+            llm_calls = 0
+            if args.dry_run:
+                logging.info("Dry-run mode: skipping Vision LLM calls.")
+                vision_results = load_cached_vision_results(review_chunks, output_dirs["cache"])
+                phase = "phase_1_dry_run"
+            else:
+                logging.info("Extracting rows with Gemini Vision (page mode)...")
+                page_prompt_path = Path(str(config.get("extraction", {}).get("page_prompt_path", "prompts/page_extract_jsonl.md")))
+                if not page_prompt_path.is_absolute():
+                    page_prompt_path = config_path.parent / page_prompt_path
+                vision_results = extract_pages_with_vision(
+                    pages=pages,
+                    cache_dir=output_dirs["cache"],
+                    prompt_path=page_prompt_path,
+                    config=config["vision"],
+                    force=bool(args.force_vision),
+                )
+                llm_calls = sum(1 for result in vision_results if not result.reused)
+                phase = "phase_2_3_vision_review"
+        else:
+            logging.info("Building overlapping review chunks...")
+            chunks = build_chunks(
                 pages=pages,
-                chunks_dir=output_dirs["total_chunks"],
-                config=apply_page_crop_profile(
-                    config.get("total_extraction", {}),
-                    page_crop_profile,
-                    "total_extraction",
-                ),
+                chunks_dir=output_dirs["chunks"],
+                config=apply_page_crop_profile(config["chunking"], page_crop_profile, "chunking"),
                 force=bool(args.force),
             )
-        review_chunks = chunks + total_chunks
-
-        vision_results = []
-        llm_calls = 0
-        if args.dry_run:
-            logging.info("Dry-run mode: skipping Vision LLM calls.")
-            vision_results = load_cached_vision_results(chunks, output_dirs["cache"])
-            vision_results.extend(load_cached_vision_results(total_chunks, output_dirs["cache"]))
-            phase = "phase_1_dry_run"
-        else:
-            logging.info("Extracting rows with Gemini Vision...")
-            prompt_path = Path(str(config["vision"]["prompt_path"]))
-            if not prompt_path.is_absolute():
-                prompt_path = config_path.parent / prompt_path
-            vision_results = extract_chunks_with_vision(
-                chunks=chunks,
-                cache_dir=output_dirs["cache"],
-                prompt_path=prompt_path,
-                config=config["vision"],
-                force=bool(args.force_vision),
-                limit=args.limit_chunks,
-            )
-            if total_chunks:
-                logging.info("Extracting summary totals with Gemini Vision...")
-                total_prompt_path = Path(str(config.get("total_extraction", {}).get("prompt_path", "prompts/vision_extract_totals.md")))
-                if not total_prompt_path.is_absolute():
-                    total_prompt_path = config_path.parent / total_prompt_path
-                vision_results.extend(
-                    extract_chunks_with_vision(
-                        chunks=total_chunks,
-                        cache_dir=output_dirs["cache"],
-                        prompt_path=total_prompt_path,
-                        config=config["vision"],
-                        force=bool(args.force_vision),
-                    )
+            total_chunks = []
+            if bool(config.get("total_extraction", {}).get("enabled", True)) and not args.skip_total_pass:
+                logging.info("Building targeted total review chunks...")
+                total_chunks = build_total_chunks(
+                    pages=pages,
+                    chunks_dir=output_dirs["total_chunks"],
+                    config=apply_page_crop_profile(
+                        config.get("total_extraction", {}),
+                        page_crop_profile,
+                        "total_extraction",
+                    ),
+                    force=bool(args.force),
                 )
-            llm_calls = sum(1 for result in vision_results if not result.reused)
-            phase = "phase_2_3_vision_review"
+            review_chunks = chunks + total_chunks
+
+            vision_results = []
+            llm_calls = 0
+            if args.dry_run:
+                logging.info("Dry-run mode: skipping Vision LLM calls.")
+                vision_results = load_cached_vision_results(chunks, output_dirs["cache"])
+                vision_results.extend(load_cached_vision_results(total_chunks, output_dirs["cache"]))
+                phase = "phase_1_dry_run"
+            else:
+                logging.info("Extracting rows with Gemini Vision...")
+                prompt_path = Path(str(config["vision"]["prompt_path"]))
+                if not prompt_path.is_absolute():
+                    prompt_path = config_path.parent / prompt_path
+                vision_results = extract_chunks_with_vision(
+                    chunks=chunks,
+                    cache_dir=output_dirs["cache"],
+                    prompt_path=prompt_path,
+                    config=config["vision"],
+                    force=bool(args.force_vision),
+                    limit=args.limit_chunks,
+                )
+                if total_chunks:
+                    logging.info("Extracting summary totals with Gemini Vision...")
+                    total_prompt_path = Path(str(config.get("total_extraction", {}).get("prompt_path", "prompts/vision_extract_totals.md")))
+                    if not total_prompt_path.is_absolute():
+                        total_prompt_path = config_path.parent / total_prompt_path
+                    vision_results.extend(
+                        extract_chunks_with_vision(
+                            chunks=total_chunks,
+                            cache_dir=output_dirs["cache"],
+                            prompt_path=total_prompt_path,
+                            config=config["vision"],
+                            force=bool(args.force_vision),
+                        )
+                    )
+                llm_calls = sum(1 for result in vision_results if not result.reused)
+                phase = "phase_2_3_vision_review"
 
         merge_output = None
         if vision_results:

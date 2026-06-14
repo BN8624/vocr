@@ -288,3 +288,25 @@
 - 수정 후 현대카드_8 캐시 재생성 결과는 `transaction_count=299`, `billing_amount_total=34,435,671`(원본 총합계 합산 34,523,411 이하), `checksum_status=auto_selected_total_matched`, `matched_field=billing_amount_total_revolving_carryover`, `carryover_total=87,740`이다. 이 이월분 87,740은 진단했던 1-2쪽 71,240 + 7-8쪽 16,500과 정확히 일치한다.
 - 남은 중복 2건(`02-14 호텔신라면세점 100,000`, `05-04 택시-02 노 2002 3,500`)은 같은 청크 내 실제 2건 거래로 원본 이미지에 두 줄 존재한다. 올바르게 유지된다.
 - 진단 도구 `tools/revision_fullpage_diag.py`로 전체 페이지를 재호출한 결과(`output/diag_hyundai_8/`)와 원본 페이지 이미지 직접 대조로 결제원금 열 추출이 정확함을 확인했다.
+
+## 2026-06-14 sop010 장점 이식 전략 (2단 구조 결정)
+
+- 사용자 전략 전환: 범용 단일 추출기로 모든 카드사를 완벽히 잡으려던 방향에서, 한국 카드사가 9개뿐이므로 카드사 맞춤 보정으로 간다. 다만 범용 1단으로 한 번 거르고 남은 것만 카드사별 2단으로 정밀화하는 합본 구조가 낫다고 판단했다.
+- 1단(범용 거름망) = `견본/sop010.html` 방식. 페이지 1장=1 호출, 헤더명 키 JSON Lines, 1쪽 헤더 확정 후 이후 쪽에 헤더 힌트 전파, 밝기→대비 적응형 전처리.
+- 2단(카드사 맞춤) = 현재 Python normalizer/validator의 issuer 보정, 검산 기준, 리볼빙 등 기존 자산 유지.
+- 핵심 통찰: sop010이 신한카드_11을 가장 근접하게 처리했고, 가장 큰 난점이던 열밀림을 잡은 결정 요인은 "페이지 단위"가 아니라 "헤더명 키 JSON"이다. 위치 기반 cells 배열은 열이 밀리면 normalizer가 위치 보정으로 고생한다.
+- Vertex 엔드포인트(aiplatform `?key=`) 문제는 무시한다. 우리 Python은 generativelanguage 엔드포인트를 쓴다.
+- 설계 결정: 추출은 헤더명 키로 받되 내부에서 헤더 순서에 맞춘 cells 배열을 재구성해 넘긴다. 그러면 row_merger/normalizer/validator/검산/리볼빙(2단)을 거의 손대지 않고 재사용하면서 추출만 열밀림에 강해진다.
+- 검산용 원본 합계는 페이지 호출에서 rows와 totals(총합계/소계 등 집계행)를 분리해 함께 반환받아 확보한다. sop010은 집계행을 버려 검산 기준이 없었다.
+- 안전 전환: 신규 페이지 단위 경로는 캐시 키가 page_NNN으로 청크 경로(chunk_id)와 겹치지 않으므로, config 플래그로 병행 추가→신한카드_11 검증→기존 100% 샘플 회귀 확인→기본 전환 순서로 간다.
+
+## 2026-06-14 페이지 단위 호출방식 결정
+
+- 출력: responseMimeType text/plain + JSON Lines. 헤더명을 동적 키로 받으므로 response_schema(고정 속성명)를 쓸 수 없다. 1행=1 JSON 객체, 첫 줄 헤더 배열, 집계행은 totals로 분리, 애매한 집계행은 __skip. 클라이언트에서 파싱한다.
+- 전송: 현행 Python urllib → generativelanguage.googleapis.com/v1beta ...:generateContent, x-goog-api-key 유지. Vertex(aiplatform ?key=)는 무시.
+- 단위: 페이지 1장=1 호출. 청크·하단가드 없음. rows+totals 동시 반환.
+- 동시성: 사용자 결정 = 동시성 2 + RPM 슬라이딩 큐(sop010 방식). 1쪽 단독 선처리로 헤더 확정 후 2쪽~ 동시 2장. 슬라이딩 윈도우 RPM 제한(슬롯 RPM-2, 60초 창).
+- 헤더 힌트: 1쪽 확정 헤더를 2쪽~ 프롬프트에 knownHeader로 주입.
+- generationConfig: temperature 0, topP 0.1, maxOutputTokens 65535, safety 전부 BLOCK_NONE. MAX_TOKENS 도달 페이지는 검토 플래그.
+- 재시도: 현행 유지(max_retries, 429→30초, 그 외 지수백오프).
+- 캐시: page_NNN.vision.json (기존 청크 chunk_id 캐시와 키 분리).
