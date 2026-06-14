@@ -135,14 +135,16 @@ def _simple_mapping_block(review_path: Path, mapping_output: MappingOutput) -> s
         f'data-mapping-path="{escape(str(mapping_output.suggestions_path))}" '
         f'data-profile-dir="{escape(str(mapping_output.profile_dir))}">'
         '<div class="mapping-header">'
-        "<h3>컬럼 맞추기</h3>"
-        '<button type="button" id="save-mapping">저장</button>'
-        '<span id="mapping-message" class="note"></span>'
+        "<h3>열 역할 확인</h3>"
         "</div>"
+        f'<p class="note">자동 판정이 애매한 열 {len(rows)}개가 있습니다. 이 화면에서는 직접 고치지 않고 원인 확인용으로만 보여줍니다.</p>'
+        '<details class="technical-details">'
+        f"<summary>열 후보 보기 ({len(rows)}개)</summary>"
         '<div class="mapping-table">'
-        '<div class="mapping-table-head"><span>원본 컬럼</span><span>샘플</span><span>엑셀 항목</span></div>'
+        '<div class="mapping-table-head"><span>원본 컬럼</span><span>샘플</span><span>자동 추정</span></div>'
         f"{''.join(rows)}"
         "</div>"
+        "</details>"
         "</div>"
     )
 
@@ -152,28 +154,13 @@ def _simple_mapping_column_row(column: dict[str, Any], option_labels: dict[str, 
     suggested = str(column.get("suggested_field", "extra"))
     samples = column.get("sample_values", [])
     sample_text = " / ".join(escape(str(value)) for value in samples[:3]) if isinstance(samples, list) else ""
-    options = []
-    visible_fields = [
-        "date",
-        "card_label",
-        "merchant",
-        "amount",
-        "billing_amount",
-        "discount",
-        "ignore",
-    ]
-    if suggested not in visible_fields:
-        visible_fields.insert(-1, suggested)
-    for value in visible_fields:
-        label = option_labels.get(value, value)
-        selected = " selected" if value == suggested else ""
-        options.append(f'<option value="{escape(str(value))}"{selected}>{escape(str(label))}</option>')
+    label = option_labels.get(suggested, suggested)
     return (
         '<div class="mapping-column needs-review" '
         f'data-column-id="{escape(column_id)}" data-original-field="{escape(suggested)}">'
         f"<strong>{escape(str(column.get('header') or column_id))}</strong>"
         f'<span class="sample-values">{sample_text}</span>'
-        f"<select>{''.join(options)}</select>"
+        f"<span>{escape(str(label))}</span>"
         "</div>"
     )
 
@@ -747,7 +734,6 @@ def _validation_block(review_path: Path, validation_output: ValidationOutput) ->
 
 def _column_quality_details(column_quality: dict[str, Any]) -> str:
     issues = [issue for issue in column_quality.get("issues", []) if isinstance(issue, dict)]
-    groups = [group for group in column_quality.get("groups", []) if isinstance(group, dict)]
     if not issues:
         return ""
 
@@ -758,40 +744,16 @@ def _column_quality_details(column_quality: dict[str, Any]) -> str:
             '<article class="column-issue">'
             f"<h3>{escape(str(issue.get('label') or issue.get('code') or '열 문제'))}</h3>"
             f"<p>{escape(str(issue.get('message', '')))}</p>"
-            f"<dl><div><dt>필드</dt><dd>{escape(str(issue.get('field', '')))}</dd></div>"
-            f"<div><dt>값</dt><dd>{escape(str(issue.get('value', '')))}</dd></div>"
-            f"<div><dt>기준</dt><dd>{escape(str(issue.get('threshold', '')))}</dd></div>"
-            f"<div><dt>헤더</dt><dd>{escape(header)}</dd></div></dl>"
-            "</article>"
-        )
-
-    metric_cards = []
-    for group in groups[:6]:
-        metrics = group.get("metrics", {}) if isinstance(group.get("metrics"), dict) else {}
-        distribution = metrics.get("row_cell_count_distribution", {})
-        counts = distribution.get("counts", {}) if isinstance(distribution, dict) else {}
-        metric_cards.append(
-            '<article class="column-metrics">'
-            f"<h3>{escape(str(group.get('group_id', 'table')))}</h3>"
-            "<dl>"
-            f"<div><dt>행</dt><dd>{escape(str(group.get('row_count', '')))}</dd></div>"
-            f"<div><dt>날짜 성공률</dt><dd>{escape(_percent(metrics.get('date_parse_success_rate')))}</dd></div>"
-            f"<div><dt>금액 성공률</dt><dd>{escape(_percent(metrics.get('amount_parse_success_rate')))}</dd></div>"
-            f"<div><dt>가맹점 숫자</dt><dd>{escape(_percent(metrics.get('merchant_numeric_like_rate')))}</dd></div>"
-            f"<div><dt>가맹점 빈 값</dt><dd>{escape(_percent(metrics.get('merchant_empty_rate')))}</dd></div>"
-            f"<div><dt>카드명 고유값</dt><dd>{escape(str(metrics.get('card_label_unique_count', '')))}</dd></div>"
-            f"<div><dt>셀 개수</dt><dd>{escape(str(counts))}</dd></div>"
-            "</dl>"
+            f'<p class="note">{escape(header)}</p>'
             "</article>"
         )
 
     return (
         '<section class="judgment-card">'
         f"<h3>열 섞임 의심 {len(issues)}개</h3>"
-        '<p class="note">합계가 맞아도 열이 섞이면 Excel이 틀립니다. 아래 항목만 확인하세요.</p>'
+        '<p class="note">사람이 이 화면에서 고칠 항목은 아닙니다. 자동 규칙 개선 대상입니다.</p>'
         '<div class="column-quality-list">'
         f"{''.join(issue_cards) if issue_cards else '<p class=\"mapping-ok\">열 품질 문제는 없습니다.</p>'}"
-        f"{''.join(metric_cards)}"
         "</div>"
         "</section>"
     )
@@ -833,52 +795,78 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
     status = str(checksum.get("status", ""))
     if status not in {"no_user_total_selected", "user_confirmed_total_mismatch"}:
         return ""
+    amount_total = checksum.get("amount_total", "")
+    billing_amount_total = checksum.get("billing_amount_total", "")
+    auto_matches = [
+        item for item in checksum.get("auto_match_candidates", []) if isinstance(item, dict)
+    ]
     selected_total_id = str(checksum.get("selected_total_id", ""))
     auto_match_ids = {
         str(item.get("candidate", {}).get("id", ""))
-        for item in checksum.get("auto_match_candidates", [])
+        for item in auto_matches
         if isinstance(item, dict) and isinstance(item.get("candidate"), dict)
     }
-    candidate_items = []
-    for candidate in candidates[:12]:
+    all_candidate_items = []
+    for candidate in _rank_checksum_candidates(candidates):
         candidate_id = str(candidate.get("id", ""))
-        checked = " checked" if candidate_id and candidate_id == selected_total_id else ""
-        marker = "선택됨" if checked else ("자동일치" if candidate_id in auto_match_ids else "후보")
-        candidate_json = escape(json.dumps(candidate, ensure_ascii=False))
-        input_html = (
-            f'<input type="radio" name="checksum-total" value="{escape(candidate_id)}" '
-            f'data-candidate="{candidate_json}"{checked}>'
-        )
+        marker = "선택됨" if candidate_id and candidate_id == selected_total_id else ("자동일치" if candidate_id in auto_match_ids else "후보")
         amount_text = str(candidate.get("value_text") or candidate.get("amount", ""))
         source_text = f"p{candidate.get('page', '')} {candidate.get('chunk_id', '')}".strip()
-        candidate_items.append(
-            '<div class="checksum-candidate">'
-            "<label>"
-            f"{input_html}"
+        all_candidate_items.append(
+            '<div class="checksum-candidate muted">'
             f"<strong>{escape(marker)}</strong>"
             "<span>"
             f"{escape(str(candidate.get('label', '원본 합계')))}: {escape(amount_text)}"
             f"<small>{escape(source_text)}</small>"
             "</span>"
-            "</label>"
             "</div>"
         )
+    reason = "자동으로 확정할 수 있는 합계 후보가 없습니다."
+    if auto_matches:
+        reason = "자동 일치 후보가 있으나 우선순위가 충분히 안전하지 않습니다."
     return (
         '<section class="judgment-card checksum-review">'
-        "<h3>검산 기준 합계 선택</h3>"
+        "<h3>검산 보류</h3>"
         f'<p id="checksum-status-line" class="merge-warning" data-checksum-status="{escape(status)}">'
         f'{escape(_checksum_label(status))}: {escape(str(checksum.get("message", "")))}</p>'
-        f"<p class=\"note\">원본에서 최종 비교 기준으로 쓸 합계 1개만 고르세요. 후보 {len(candidates)}개 중에서 선택하면 됩니다.</p>"
-        f'<div class="checksum-candidates" data-state-path="{escape(_relative_src(review_path, state_path))}">'
-        f"{''.join(candidate_items)}"
+        f"<p class=\"note\">{escape(reason)} 사람이 이 화면에서 고르는 대신 원인 분석 대상입니다.</p>"
+        '<div class="summary validation-stats compact-stats">'
+        f"<div><strong>거래 합계</strong><span>{escape(_format_amount(amount_total))}</span></div>"
+        f"<div><strong>청구 합계</strong><span>{escape(_format_amount(billing_amount_total))}</span></div>"
+        f"<div><strong>원본 후보</strong><span>{len(candidates)}</span></div>"
         "</div>"
-        '<div class="checksum-actions">'
-        '<button type="button" id="save-checksum-total">검산 기준 저장</button>'
-        '<span id="checksum-message" class="note"></span>'
+        '<p class="note">후보 목록은 판단용 선택지가 아니라 기술 로그라서 접어두었습니다.</p>'
+        '<details class="technical-details">'
+        f"<summary>전체 원본 합계 후보 보기 ({len(candidates)}개)</summary>"
+        '<div class="checksum-candidates">'
+        f"{''.join(all_candidate_items)}"
         "</div>"
-        '<p class="note">저장하면 서버가 현재 검산 요약과 Excel 파일을 바로 갱신합니다.</p>'
+        "</details>"
         "</section>"
     )
+
+
+def _rank_checksum_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(candidates, key=_review_total_candidate_score, reverse=True)
+
+
+def _review_total_candidate_score(candidate: dict[str, Any]) -> int:
+    label = str(candidate.get("label", "")).replace(" ", "").lower()
+    if "총합계" in label or label == "합계":
+        return 100
+    if any(token in label for token in ("청구금액", "결제금액", "이번달")):
+        return 90
+    if "합계" in label:
+        return 80
+    if any(token in label for token in ("소계", "총")):
+        return 60
+    return 10
+
+
+def _format_amount(value: Any) -> str:
+    if isinstance(value, int):
+        return f"{value:,}"
+    return str(value)
 
 
 def _checksum_label(status: str) -> str:

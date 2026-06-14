@@ -92,8 +92,9 @@ def main() -> int:
         )
         html = review_path.read_text(encoding="utf-8")
         assert 'id="mapping"' in html
-        assert "컬럼 맞추기" in html
-        assert "저장" in html
+        assert "열 역할 확인" in html
+        assert 'id="save-mapping"' not in html
+        assert "<select" not in html
         assert "JSON 내려받기" not in html
         assert 'data-workflow-target="mapping"' not in html
 
