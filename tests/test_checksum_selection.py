@@ -192,6 +192,55 @@ def main() -> int:
         assert kb.summary["checksum"]["matched_total"]["pages"] == [1, 2]
         assert kb.summary["checksum"]["matched_field"] == "amount_total"
 
+        revolving = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=999999,
+                billing_amount_total=250000,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("일부결제금액이월약정 소계", 100000, page_number=1, chunk_id="page_001_chunk_03"),
+                _vision_total("총 합계", 100000, page_number=1, chunk_id="page_001_chunk_03"),
+                _vision_total("일부결제금액이월약정 소계", 200000, page_number=2, chunk_id="page_002_chunk_03"),
+                _vision_total("총 합계", 200000, page_number=2, chunk_id="page_002_chunk_03"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=2,
+        )
+        assert revolving is not None
+        # 리볼빙 명세서: 원본 총합계(이월분 포함)가 결제원금 합보다 크면 이월분을 무시하고 일치 처리
+        assert revolving.checksum_status == "auto_selected_total_matched"
+        assert revolving.summary["checksum"]["matched_field"] == "billing_amount_total_revolving_carryover"
+        assert revolving.summary["checksum"]["matched_total"]["amount"] == 300000
+        assert revolving.summary["checksum"]["auto_match_candidates"][0]["carryover_total"] == 50000
+
+        # 결제원금 합이 원본 총합계를 초과(과추출)하면 리볼빙으로도 일치시키지 않는다
+        over_extracted = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=999999,
+                billing_amount_total=350000,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("일부결제금액이월약정 소계", 100000, page_number=1, chunk_id="page_001_chunk_03"),
+                _vision_total("총 합계", 100000, page_number=1, chunk_id="page_001_chunk_03"),
+                _vision_total("일부결제금액이월약정 소계", 200000, page_number=2, chunk_id="page_002_chunk_03"),
+                _vision_total("총 합계", 200000, page_number=2, chunk_id="page_002_chunk_03"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=2,
+        )
+        assert over_extracted is not None
+        assert over_extracted.checksum_status != "auto_selected_total_matched"
+
     print("checksum selection test passed")
     return 0
 

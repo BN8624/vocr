@@ -58,6 +58,7 @@ def build_review_html(
                 ("정규화 확인", normalization_review_count),
                 ("검증 이슈", validation_issue_count),
                 ("검산", _checksum_label(checksum_status)),
+                ("리볼빙", "있음" if _detect_revolving(validation_output) else "없음"),
             ]
         ),
     ]
@@ -109,6 +110,24 @@ def _summary_grid(items: list[tuple[str, object]]) -> str:
             "</div>"
         )
     return '<section class="summary">' + "".join(cards) + "</section>"
+
+
+def _detect_revolving(validation_output: ValidationOutput | None) -> bool:
+    # 검산 후보 라벨에 일부결제금액이월약정/리볼빙이 있으면 리볼빙 명세서로 본다.
+    if not validation_output:
+        return False
+    try:
+        summary = json.loads(validation_output.summary_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    checksum = summary.get("checksum", {}) if isinstance(summary.get("checksum"), dict) else {}
+    for candidate in checksum.get("source_total_candidates", []):
+        if not isinstance(candidate, dict):
+            continue
+        label = str(candidate.get("label", "")).replace(" ", "")
+        if "이월약정" in label or "리볼빙" in label:
+            return True
+    return False
 
 
 def _transaction_count(

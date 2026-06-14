@@ -952,7 +952,34 @@ def _auto_match_candidates(
                             "match_type": "discount_reconciled",
                         }
                     )
+    if not matches and _is_revolving_statement(source_totals) and billing_amount_total > 0:
+        for candidate in candidates:
+            if _total_candidate_score(candidate) < 80:
+                continue
+            carryover = int(candidate.get("amount", 0)) - billing_amount_total
+            if carryover <= 0:
+                continue
+            matches.append(
+                {
+                    "field": "billing_amount_total_revolving_carryover",
+                    "candidate": candidate,
+                    "difference": 0,
+                    "carryover_total": carryover,
+                    "score": _total_candidate_score(candidate),
+                    "match_type": "revolving_carryover",
+                }
+            )
     return sorted(matches, key=lambda item: int(item.get("score", 0)), reverse=True)
+
+
+def _is_revolving_statement(source_totals: list[dict[str, Any]]) -> bool:
+    # 리볼빙(일부결제금액이월약정) 명세서는 원본 총합계에 전월 이월분이 포함되어
+    # 이번 달 거래 결제원금 합보다 크다. 라벨에 이월약정/리볼빙이 있으면 리볼빙으로 본다.
+    for candidate in source_totals:
+        label = re.sub(r"\s+", "", str(candidate.get("label", ""))).lower()
+        if "이월약정" in label or "리볼빙" in label:
+            return True
+    return False
 
 
 def _aggregate_total_candidates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
