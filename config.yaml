@@ -35,7 +35,7 @@ vision:
   cache_enabled: true
   max_retries: 4
   concurrency: 2          # page 모드 동시 처리 페이지 수
-  rpm_limit: 10           # page 모드 RPM 한도(슬롯 = rpm_limit - 2)
+  rpm_limit: 15           # page 모드 RPM 한도(Gemini 3.1 Flash Lite=15, 슬롯 = rpm_limit - 2)
   max_output_tokens: 65535
   adaptive_preprocess: true
 

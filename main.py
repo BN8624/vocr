@@ -57,7 +57,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "cache_enabled": True,
         "max_retries": 4,
         "concurrency": 2,
-        "rpm_limit": 10,
+        "rpm_limit": 15,
         "max_output_tokens": 65535,
         "adaptive_preprocess": True,
     },

@@ -209,6 +209,15 @@
 - [x] 페이지 단위 추출기 추가: `src/page_extractor.py`. 페이지 1장=1 호출, 1쪽 단독 선처리→헤더 확정→2쪽~ 동시성2 + RPM 슬라이딩 큐, 헤더 힌트 전파, 캐시 키 `page_NNN`.
 - [x] 헤더명 키 → 헤더 순서 `cells` 배열 재구성: `_parse_jsonl`이 객체 키 순서와 무관하게 헤더 순서로 정렬. 기존 row_merger/normalizer 계약 유지.
 - [x] config 플래그 `extraction.mode`(chunk|page) + CLI `--extraction-mode`. 기본 chunk 유지. 기존 17개 테스트 + chunk 모드 회귀(현대카드_8 299건/auto matched) 통과.
-- [ ] 신한카드_11 page 모드 1차 검증(API 필요): `python main.py --input "견본/신한카드_11.pdf" --output output/acceptance_shinhan_11_page --extraction-mode page`. → verify: 행 정확도·열밀림·검산 지표 비교.
+- [x] 신한카드_11 page 모드 1차 검증(API): 11호출/0에러. 헤더 강제→소프트 힌트로 검증 이슈 123→32, 리뷰 123→74.
+
+## 2026-06-14 계획 변경 — 1단계 = sop010 충실 재현 후 그 위에 튜닝
+
+사용자 방향: HTML은 일시불/공과금 컬럼 문제를 강제 보정 없이 프롬프트로 풀었다. 1단계 완료를 "sop010 충실 재현"으로 정의하고, 그 결과물 위에서만 튜닝한다. 강제 코드 보정 금지, 프롬프트 우선.
+
+- [x] 내가 추가했던 normalizer 강제 보정(`_repair_shinhan_amount_rows` 일시불 금액 fallback) revert.
+- [ ] 프롬프트를 sop010 `EXTRACT_PROMPT` 충실 이식(헤더명 키, 빈 칸 키 생략, __skip, 집계행 제외). 검산용 totals는 `__total` 최소 확장.
+- [ ] 파서를 sop010 `parseRawText` 충실 이식(AGGREGATE_RE 클라이언트 백업, 키-합집합 헤더 추론).
+- [ ] 신한_11 재추출로 1단 베이스라인 확정(프롬프트 변경이라 API 1회 허용).
+- [ ] 베이스라인 결과물 위에서 2단 튜닝(프롬프트 우선, 강제 보정 지양).
 - [ ] 기존 100% 샘플 page 모드 회귀 후 기본 모드 전환 판단.
-- [ ] 관련 테스트와 문서 갱신, 논리 단위 커밋.

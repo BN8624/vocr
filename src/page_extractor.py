@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 import threading
 import time
 import urllib.error
@@ -25,6 +26,9 @@ from typing import Any
 from src.chunk_builder import ChunkImage
 from src.page_renderer import PageImage
 from src.vision_extractor import VisionResult, _load_api_key, _load_prompt
+
+# sop010 parseRawText의 집계행 키워드(클라이언트 2차 백업). 프롬프트가 놓친 소계/합계 행을 거래에서 제외한다.
+_AGGREGATE_RE = re.compile(r"^(소계|합계|총합|총계|월계|누계|grand\s*total|sub\s*total)", re.IGNORECASE)
 
 
 def page_pseudo_chunks(pages: list[PageImage]) -> list[ChunkImage]:
@@ -256,8 +260,10 @@ def _call_gemini_text(
     header_hint = ""
     user_text = "값이 있는 컬럼만 헤더명을 키로 사용해 JSON Lines로 출력하세요. 첫 줄은 헤더 컬럼명 JSON 배열입니다."
     if known_header:
+        # sop010 충실 이식(callExtract): 같은 파일 2쪽~는 1쪽에서 확정한 헤더를 강제 통일한다.
+        # 신한처럼 다단 헤더가 페이지마다 다르게 쪼개져 열이 어긋나는 것을 막는다.
         header_hint = (
-            "\n\n[중요] 이 페이지에는 표 헤더가 없을 수 있습니다. 반드시 아래 헤더명을 키로 사용하세요 "
+            "\n\n[중요] 이 페이지에는 표 헤더가 없습니다. 반드시 아래 헤더명을 키로 사용하세요 "
             f"(임의 생성 금지):\n{json.dumps(known_header, ensure_ascii=False)}\n첫 줄 헤더 배열도 위 헤더 그대로 출력하세요."
         )
         user_text = (
@@ -287,6 +293,7 @@ def _call_gemini_text(
             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_CIVIC_INTEGRITY", "threshold": "BLOCK_NONE"},
         ],
     }
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -320,7 +327,9 @@ def _call_gemini_text(
 
 
 def _parse_jsonl(text: str, page: PageImage, known_header: list[str] | None) -> dict[str, Any]:
-    header: list[str] | None = list(known_header) if known_header else None
+    # sop010 충실 이식(parseRawText): known_header(1쪽 확정 헤더)가 있으면 강제로 사용한다.
+    # 1쪽은 known_header가 없으므로 자기 헤더로 확정한다.
+    page_header: list[str] | None = None
     row_objects: list[dict[str, Any]] = []
     totals: list[dict[str, Any]] = []
 
@@ -333,27 +342,19 @@ def _parse_jsonl(text: str, page: PageImage, known_header: list[str] | None) -> 
         except json.JSONDecodeError:
             continue
         if isinstance(obj, list):
-            if header is None and len(obj) >= 2 and all(isinstance(v, str) for v in obj):
-                header = [str(v).strip() for v in obj]
+            if page_header is None and len(obj) >= 2 and all(isinstance(v, str) for v in obj):
+                page_header = [str(v).strip() for v in obj]
             continue
         if not isinstance(obj, dict):
             continue
-        if obj.get("__total") is True:
-            value_text = str(obj.get("value", obj.get("amount", "")))
-            totals.append(
-                {
-                    "label": str(obj.get("label", "")).strip() or "원본 합계",
-                    "value_text": value_text,
-                    "amount": _parse_amount(value_text),
-                    "needs_review": False,
-                    "review_reason": "",
-                }
-            )
-            continue
         if obj.get("__skip") is True:
+            continue
+        first_value = next((str(v).strip() for v in obj.values() if str(v).strip()), "")
+        if _AGGREGATE_RE.match(first_value):
             continue
         row_objects.append(obj)
 
+    header = (list(known_header) if known_header else None) or page_header
     if header is None:
         keys: list[str] = []
         for obj in row_objects:
