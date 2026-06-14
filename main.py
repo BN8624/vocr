@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.chunk_builder import build_chunks, build_total_chunks
+from src.automation import write_automation_summary
 from src.excel_exporter import export_excel, load_excel_export
 from src.normalizer import build_transactions, load_normalization_output
 from src.page_renderer import render_pdf_pages
@@ -172,6 +173,7 @@ def write_summary(
     validation_issue_row_count: int,
     checksum_status: str,
     excel_path: Path | None,
+    automation_summary_path: Path | None = None,
 ) -> Path:
     summary_path = output_dir / config["output"]["summary_filename"]
     summary = {
@@ -192,6 +194,7 @@ def write_summary(
         "validation_issue_row_count": validation_issue_row_count,
         "checksum_status": checksum_status,
         "excel_path": str(excel_path) if excel_path else "",
+        "automation_summary": str(automation_summary_path) if automation_summary_path else "",
     }
     summary_path.write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
@@ -388,6 +391,12 @@ def main() -> int:
         else:
             validation_output = load_validation_output(output_dirs["merged"])
 
+        automation_summary_path = write_automation_summary(
+            validation_output=validation_output,
+            normalization_output=normalization_output,
+            merged_dir=output_dirs["merged"],
+        )
+
         excel_output = None
         if validation_output:
             logging.info("Exporting reviewable Excel workbook...")
@@ -439,6 +448,7 @@ def main() -> int:
             validation_issue_row_count=validation_output.issue_row_count if validation_output else 0,
             checksum_status=validation_output.checksum_status if validation_output else "not_run",
             excel_path=excel_output.workbook_path if excel_output else None,
+            automation_summary_path=automation_summary_path,
         )
 
     except Exception as exc:

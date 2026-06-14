@@ -97,3 +97,13 @@
 - [x] 저장 버튼을 제목 옆으로 이동.
 - [x] 관련 테스트와 삼성카드_7 HTML 재생성 검증.
 - [x] 의미 단위 커밋.
+
+## 2026-06-14 남은 4개 항목 정리
+
+- [x] 현대카드_8 합계 후보를 재검토하고 자동 선택 금지 상태를 automation summary에 표시.
+- [x] 삼성카드_7 합계 자동 일치 상태를 재생성 결과로 재확인.
+- [x] 아이폰 확인용 review.html을 최신 UI로 재생성.
+- [x] `automation_summary.json` 생성과 row automation 계약 추가.
+- [x] `samples/sample_manifest.json` 로컬 생성.
+- [x] 관련 테스트와 두 샘플 재생성 검증.
+- [x] 의미 단위 커밋.

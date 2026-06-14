@@ -625,6 +625,7 @@ def _checksum_summary(
 
 def _with_validation(row: dict[str, Any], issues: list[dict[str, str]]) -> dict[str, Any]:
     copied = json.loads(json.dumps(row, ensure_ascii=False))
+    quality = copied.get("quality", {}) if isinstance(copied.get("quality"), dict) else {}
     copied["validation"] = {
         "needs_review": bool(issues),
         "issues": issues,
@@ -637,7 +638,35 @@ def _with_validation(row: dict[str, Any], issues: list[dict[str, str]]) -> dict[
         copied["quality"]["review_reason"] = (
             f"{existing}; {validation_reason}" if existing else validation_reason
         )
+    copied["automation"] = _row_automation(issues, quality)
     return copied
+
+
+def _row_automation(issues: list[dict[str, str]], quality: dict[str, Any]) -> dict[str, Any]:
+    if issues:
+        return {
+            "row_status": "needs_hard_review",
+            "confidence_score": 0.55,
+            "risk_level": "high",
+            "signals": {"validation_issue_count": len(issues)},
+            "reasons": [str(issue.get("code") or issue.get("message") or "validation_issue") for issue in issues],
+        }
+    if bool(quality.get("needs_review")):
+        reason = str(quality.get("review_reason", "normalization_review")).strip() or "normalization_review"
+        return {
+            "row_status": "needs_light_review",
+            "confidence_score": 0.72,
+            "risk_level": "medium",
+            "signals": {"normalization_needs_review": True},
+            "reasons": [reason],
+        }
+    return {
+        "row_status": "auto_confirmed",
+        "confidence_score": 0.97,
+        "risk_level": "low",
+        "signals": {},
+        "reasons": [],
+    }
 
 
 def _issue_record(row: dict[str, Any], issues: list[dict[str, str]]) -> dict[str, Any]:

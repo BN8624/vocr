@@ -41,6 +41,9 @@ def main() -> int:
         )
         assert first is not None
         assert first.checksum_status == "auto_selected_total_matched"
+        validated_rows = _read_jsonl(first.validated_transactions_path)
+        assert validated_rows[0]["automation"]["row_status"] == "auto_confirmed"
+        assert validated_rows[0]["automation"]["risk_level"] == "low"
         auto_matches = first.summary["checksum"]["auto_match_candidates"]
         assert len(auto_matches) == 1
 
@@ -235,6 +238,16 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     with path.open("w", encoding="utf-8") as file:
         for row in rows:
             file.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _read_jsonl(path: Path) -> list[dict[str, object]]:
+    rows = []
+    with path.open("r", encoding="utf-8") as file:
+        for line in file:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
 
 
 if __name__ == "__main__":

@@ -142,3 +142,10 @@
 
 - 컬럼 맞추기는 원본 컬럼, 샘플, 엑셀 항목 3열이면 충분하므로 카드형 반복 UI를 표형 행으로 줄였다.
 - 저장 버튼은 컬럼 목록 아래가 아니라 `컬럼 맞추기` 제목 옆에 배치해 화면 높이를 줄였다.
+
+## 2026-06-14 남은 4개 항목 정리
+
+- 현대카드_8은 총합계 후보 4페이지 합산 34,523,411과 거래 합계 34,572,391이 48,980 차이난다. 자동 선택 후보가 없으므로 조용한 오선택을 막기 위해 `no_user_total_selected`를 유지한다.
+- 현대카드_8의 checksum 보류는 행 단위 blocked가 아니라 샘플 단위 검산 확인 필요 상태이므로 `automation_summary.json`의 `checksum_review_required`로 표시한다.
+- 삼성카드_7은 재생성 결과 `auto_selected_total_matched`, `matched_field=amount_total_discount_reconciled`, difference 0으로 확인했다.
+- P0 기반 작업으로 검증된 각 거래 행에 `automation.row_status`, `confidence_score`, `risk_level`을 추가하고 `merged/automation_summary.json`을 생성하도록 했다.
