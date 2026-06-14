@@ -145,7 +145,7 @@ def load_cached_vision_results(chunks: list[ChunkImage], cache_dir: Path) -> lis
                     page_number=chunk.page_number,
                     cache_path=cache_path,
                     status="cached",
-                    data=_read_json(cache_path),
+                    data=_with_required_defaults(_read_json(cache_path), chunk),
                     reused=True,
                 )
             )
