@@ -152,6 +152,8 @@ def _collect_raw_rows(
                         "page": int(result.data.get("page") or result.page_number),
                         "chunk_id": result.chunk_id,
                         "local_row_index": local_index,
+                        "source_y_start": chunk.source_y_start if chunk else None,
+                        "source_y_end": chunk.source_y_end if chunk else None,
                         "statement_type": "unknown",
                         "period": "",
                     },
@@ -327,6 +329,8 @@ def _row_key(row: dict[str, Any]) -> tuple[str, int]:
 
 
 def _looks_like_overlap_duplicate(rows: list[dict[str, Any]]) -> bool:
+    if _source_ranges_overlap(rows):
+        return True
     indexes = [_chunk_index(str(row.get("source", {}).get("chunk_id", ""))) for row in rows]
     if any(index is None for index in indexes):
         return False
@@ -335,6 +339,25 @@ def _looks_like_overlap_duplicate(rows: list[dict[str, Any]]) -> bool:
         return False
     span = unique_indexes[-1] - unique_indexes[0]
     return span <= 1 or (span <= 2 and len(unique_indexes) >= 3)
+
+
+def _source_ranges_overlap(rows: list[dict[str, Any]]) -> bool:
+    chunk_indexes = [_chunk_index(str(row.get("source", {}).get("chunk_id", ""))) for row in rows]
+    if not any(isinstance(index, int) and index >= 80 for index in chunk_indexes):
+        return False
+    ranges = []
+    for row in rows:
+        source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+        start = source.get("source_y_start")
+        end = source.get("source_y_end")
+        if not isinstance(start, int) or not isinstance(end, int):
+            return False
+        ranges.append((start, end))
+    for index, left in enumerate(ranges):
+        for right in ranges[index + 1:]:
+            if min(left[1], right[1]) > max(left[0], right[0]):
+                return True
+    return False
 
 
 def _chunk_index(chunk_id: str) -> int | None:

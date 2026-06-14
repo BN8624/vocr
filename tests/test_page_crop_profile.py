@@ -50,6 +50,9 @@ def main() -> int:
                     "chunk_height_ratio": 0.35,
                     "overlap_ratio": 0.25,
                     "attach_header": True,
+                    "bottom_guard_enabled": True,
+                    "bottom_guard_start_ratio": 0.90,
+                    "bottom_guard_end_ratio": 0.95,
                 },
                 profile,
                 "chunking",
@@ -59,6 +62,8 @@ def main() -> int:
         assert chunks[0].header_y_end == 20
         assert chunks[0].source_y_start == 30
         assert chunks[-1].source_y_end == 60
+        assert chunks[-1].chunk_id == "page_001_chunk_90"
+        assert chunks[-1].source_y_start == 59
 
         total_chunks = build_total_chunks(
             pages=[page],

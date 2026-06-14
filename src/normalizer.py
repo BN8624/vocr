@@ -148,7 +148,7 @@ def _exclude_normalized_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dic
         for key in _normalized_duplicate_keys(row):
             grouped[key].append(row)
 
-    excluded: set[tuple[str, int]] = set()
+    excluded: set[tuple[str, int]] = _guard_duplicate_source_keys(rows) | _guard_low_confidence_source_keys(rows)
     for candidates in grouped.values():
         by_page: dict[int, list[dict[str, Any]]] = defaultdict(list)
         for row in candidates:
@@ -199,6 +199,66 @@ def _normalized_duplicate_keys(row: dict[str, Any]) -> list[tuple[Any, ...]]:
     return keys
 
 
+def _guard_duplicate_source_keys(rows: list[dict[str, Any]]) -> set[tuple[str, int]]:
+    regular_keys: set[tuple[Any, ...]] = set()
+    for row in rows:
+        if _is_guard_chunk(row):
+            continue
+        for key in _guard_comparison_keys(row):
+            regular_keys.add(key)
+
+    excluded: set[tuple[str, int]] = set()
+    for row in rows:
+        if not _is_guard_chunk(row):
+            continue
+        if any(key in regular_keys for key in _guard_comparison_keys(row)):
+            excluded.add(_source_key(row))
+    return excluded
+
+
+def _guard_low_confidence_source_keys(rows: list[dict[str, Any]]) -> set[tuple[str, int]]:
+    excluded: set[tuple[str, int]] = set()
+    for row in rows:
+        if not _is_guard_chunk(row):
+            continue
+        transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+        quality = row.get("quality", {}) if isinstance(row.get("quality"), dict) else {}
+        date_value = str(transaction.get("date", "")).strip()
+        merchant = str(transaction.get("merchant", "")).strip()
+        amount = transaction.get("amount")
+        billing_amount = transaction.get("billing_amount")
+        if not _is_valid_date_like(date_value):
+            excluded.add(_source_key(row))
+            continue
+        if not isinstance(amount, int) and not isinstance(billing_amount, int):
+            excluded.add(_source_key(row))
+            continue
+        if merchant.startswith("ETC.") or merchant in {"기타", "?기타"}:
+            excluded.add(_source_key(row))
+            continue
+        if quality.get("needs_review"):
+            excluded.add(_source_key(row))
+    return excluded
+
+
+def _guard_comparison_keys(row: dict[str, Any]) -> list[tuple[Any, ...]]:
+    source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+    transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+    date = str(transaction.get("date", "")).strip()
+    if not date:
+        return []
+    amount = transaction.get("amount")
+    billing_amount = transaction.get("billing_amount")
+    amounts = [value for value in (amount, billing_amount) if isinstance(value, int)]
+    return [("guard", int(source.get("page", 0) or 0), date, value) for value in set(amounts)]
+
+
+def _is_guard_chunk(row: dict[str, Any]) -> bool:
+    source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+    index = _chunk_index(str(source.get("chunk_id", "")))
+    return isinstance(index, int) and index >= 80
+
+
 def _normalized_duplicate_merchants_match(rows: list[dict[str, Any]]) -> bool:
     if any(_has_merchant_ocr_review(row) for row in rows):
         return True
@@ -235,6 +295,8 @@ def _normalized_duplicate_merchant_key(value: Any) -> str:
 
 def _looks_like_normalized_overlap(chunk_numbers: list[int]) -> bool:
     if not chunk_numbers:
+        return False
+    if len(set(chunk_numbers)) < 2:
         return False
     span = chunk_numbers[-1] - chunk_numbers[0]
     return span <= 1 or (span <= 2 and len(set(chunk_numbers)) >= 2)
@@ -400,6 +462,10 @@ def _repair_hyundai_shifted_rows(
     repaired = _repair_hyundai_billing_amount_from_header(transaction, header, cells)
     if _repair_hyundai_combined_date_card_header(transaction, extra_fields, header, cells):
         return True
+    if _repair_hyundai_highpass_count_row(transaction, cells):
+        return True
+    if _repair_hyundai_actual_principal_row(transaction, header, cells):
+        return True
     if _repair_hyundai_split_content_row(transaction, cells):
         return True
     if _repair_hyundai_owner_card_row(transaction, extra_fields, cells):
@@ -450,6 +516,55 @@ def _repair_hyundai_split_content_row(transaction: dict[str, Any], cells: list[s
     transaction["amount"] = amount
     if billing_amount is not None:
         transaction["billing_amount"] = billing_amount
+    transaction["transaction_type"] = ""
+    return True
+
+
+def _repair_hyundai_highpass_count_row(transaction: dict[str, Any], cells: list[str]) -> bool:
+    if len(cells) < 5 or not _looks_like_date_token(cells[0]):
+        return False
+    card_label = cells[1].strip()
+    if "하이패스" not in card_label and "?섏씠?⑥뒪" not in card_label:
+        return False
+    if not re.fullmatch(r"\d{3,4}(건|嫄?)", cells[3].strip()):
+        return False
+    amount_values = [
+        amount
+        for amount in (_parse_amount(cell) for cell in cells)
+        if isinstance(amount, int) and abs(amount) >= 1000
+    ]
+    if not amount_values:
+        return False
+    amount = amount_values[-1]
+    transaction["date"] = _normalize_date(cells[0])
+    transaction["card_label"] = card_label
+    transaction["merchant"] = cells[2].strip()
+    transaction["amount"] = amount
+    transaction["billing_amount"] = amount
+    transaction["transaction_type"] = ""
+    return True
+
+
+def _repair_hyundai_actual_principal_row(
+    transaction: dict[str, Any],
+    header: list[str],
+    cells: list[str],
+) -> bool:
+    joined_header = "|".join(re.sub(r"\s+", "", str(value)) for value in header)
+    if "실제원금" not in joined_header:
+        return False
+    if len(cells) < 5 or not _looks_like_date_token(cells[0]):
+        return False
+    amounts = [_parse_amount(cell) for cell in cells]
+    amount_values = [amount for amount in amounts if isinstance(amount, int)]
+    amount = amount_values[-1] if amount_values else None
+    if amount is None:
+        return False
+    transaction["date"] = _normalize_date(cells[0])
+    transaction["card_label"] = cells[1].strip()
+    transaction["merchant"] = cells[2].strip()
+    transaction["amount"] = amount
+    transaction["billing_amount"] = amount
     transaction["transaction_type"] = ""
     return True
 
@@ -582,6 +697,9 @@ def _looks_like_card_token(value: str) -> bool:
 def _filter_repaired_hyundai_reasons(reasons: list[str]) -> list[str]:
     auto_resolved = (
         "열 매핑 확인 필요",
+        "Column alignment is unclear",
+        "Header misalignment",
+        "value 12,000 appears",
         "amount 후보",
         "amount 값을 숫자로 읽지 못했습니다",
         "amount 일부 값을 숫자로 읽지 못했습니다",

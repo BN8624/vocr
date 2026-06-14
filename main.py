@@ -28,6 +28,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "chunk_height_ratio": 0.35,
         "overlap_ratio": 0.25,
         "attach_header": True,
+        "bottom_guard_enabled": True,
+        "bottom_guard_start_ratio": 0.90,
+        "bottom_guard_end_ratio": 0.98,
     },
     "total_extraction": {
         "enabled": True,

@@ -83,6 +83,10 @@ def main() -> int:
         _assert_hyundai_combined_header_row_repaired(root / "hyundai_combined_header")
         _assert_hyundai_billing_amount_repaired_from_header(root / "hyundai_billing_header")
         _assert_hyundai_split_content_row_repaired(root / "hyundai_split_content")
+        _assert_hyundai_actual_principal_row_repaired(root / "hyundai_actual_principal")
+        _assert_hyundai_highpass_count_row_repaired(root / "hyundai_highpass_count")
+        _assert_same_chunk_repeated_transactions_kept(root / "same_chunk_repeated")
+        _assert_bottom_guard_overlap_duplicate_excluded(root / "bottom_guard_overlap")
 
     print("duplicate representative test passed")
     return 0
@@ -98,6 +102,22 @@ def _chunk(chunk_id: str, image_path: Path, chunk_index: int, page_number: int =
         height=100,
         source_y_start=0,
         source_y_end=100,
+        header_y_start=0,
+        header_y_end=10,
+        reused=False,
+    )
+
+
+def _chunk_with_y(chunk_id: str, image_path: Path, chunk_index: int, source_y_start: int, source_y_end: int) -> ChunkImage:
+    return ChunkImage(
+        chunk_id=chunk_id,
+        page_number=1,
+        chunk_index=chunk_index,
+        image_path=image_path,
+        width=100,
+        height=100,
+        source_y_start=source_y_start,
+        source_y_end=source_y_end,
         header_y_start=0,
         header_y_end=10,
         reused=False,
@@ -523,6 +543,122 @@ def _assert_hyundai_split_content_row_repaired(root: Path) -> None:
     assert normalization_output.billing_amount_total == 86640
     rows = _read_jsonl(normalization_output.transactions_path)
     assert rows[0]["transaction"]["merchant"] == "AMAZON MKTPL*J500060 USD:58.98"
+
+
+def _assert_hyundai_actual_principal_row_repaired(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    header = ["이용일", "이용카드", "이용가맹점", "이용금액", "할부/회차", "적립/할인율(%)", "예상적립/할인", "실제원금"]
+    cells = ["04.07", "본인 the Purple(KAL)", "KCP - 쿠팡", "", "15,800", "0.1", "15", "15,800"]
+    merge_output = build_row_outputs(
+        vision_results=[_vision_with_header("page_006_chunk_01", header, [cells], page_number=6)],
+        chunks=[_chunk("page_006_chunk_01", root / "chunk_01.png", 1, page_number=6)],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[_mapping_group_for(header, ["date", "card_label", "merchant", "extra", "amount", "discount", "points", "extra"])],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(merge_output=merge_output, mapping_output=mapping_output, merged_dir=merged_dir)
+    assert normalization_output is not None
+    assert normalization_output.amount_total == 15800
+    assert normalization_output.billing_amount_total == 15800
+
+
+def _assert_hyundai_highpass_count_row_repaired(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    header = ["이용일", "이용카드", "가맹점명", "건수", "이용금액", "할인", "포인트", "결제원금"]
+    cells = ["03.05", "본인 퍼플 하이패스", "한국도로공사", "0004건", "12,000", "", "", "", "12,000", ""]
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision_with_header(
+                "page_003_chunk_90",
+                header,
+                [cells],
+                page_number=3,
+                review_reasons=["Column alignment is unclear, value 12,000 appears to be split across columns."],
+            )
+        ],
+        chunks=[_chunk("page_003_chunk_90", root / "chunk_90.png", 90, page_number=3)],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[_mapping_group_for(header, ["date", "card_label", "merchant", "amount", "amount", "extra", "extra", "extra", "billing_amount", "extra"])],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(merge_output=merge_output, mapping_output=mapping_output, merged_dir=merged_dir)
+    assert normalization_output is not None
+    assert normalization_output.transaction_count == 1
+    assert normalization_output.amount_total == 12000
+    assert normalization_output.billing_amount_total == 12000
+    rows = _read_jsonl(normalization_output.transactions_path)
+    assert rows[0]["quality"]["needs_review"] is False
+
+
+def _assert_same_chunk_repeated_transactions_kept(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    header = ["이용일", "이용카드", "가맹점명", "이용금액", "적립율", "적립예정", "청구금액"]
+    rows = [
+        ["05.04", "본인 the Purple(KAL)", "택시-02 노 2002", "3,500", "0.1", "3", "3,500"],
+        ["05.04", "본인 the Purple(KAL)", "택시-02 노 2002", "3,500", "0.1", "3", "3,500"],
+    ]
+    merge_output = build_row_outputs(
+        vision_results=[_vision_with_header("page_008_chunk_01", header, rows, page_number=8)],
+        chunks=[_chunk("page_008_chunk_01", root / "chunk_01.png", 1, page_number=8)],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[_mapping_group_for(header, ["date", "card_label", "merchant", "amount", "discount", "points", "billing_amount"])],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(merge_output=merge_output, mapping_output=mapping_output, merged_dir=merged_dir)
+    assert normalization_output is not None
+    assert normalization_output.transaction_count == 2
+    assert normalization_output.amount_total == 7000
+
+
+def _assert_bottom_guard_overlap_duplicate_excluded(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    row = ["03.05", "본인 퍼플 하이패스", "한국도로공사", "0004건", "12,000", "", "", "", "12,000"]
+    header = ["이용일", "이용카드", "이용가맹점", "이용금액", "할부/회차", "적립/할인율(%)", "예상적립/할인", "실제원금"]
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision_with_header("page_003_chunk_03", header, [row], page_number=3),
+            _vision_with_header("page_003_chunk_90", header, [row], page_number=3),
+        ],
+        chunks=[
+            _chunk_with_y("page_003_chunk_03", root / "chunk_03.png", 3, 700, 900),
+            _chunk_with_y("page_003_chunk_90", root / "chunk_90.png", 90, 880, 980),
+        ],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    decisions = [row["merge"]["decision"] for row in _read_jsonl(merge_output.rows_merged_path)]
+    assert decisions.count("representative") == 1, decisions
+    assert decisions.count("duplicate_excluded") == 1, decisions
 
 
 def _vision_with_header(

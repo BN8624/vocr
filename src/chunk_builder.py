@@ -103,6 +103,43 @@ def build_chunks(
                 y_start += step
                 chunk_index += 1
 
+            if bool(page_config.get("bottom_guard_enabled", False)):
+                guard_start = _clamp(int(height * float(page_config.get("bottom_guard_start_ratio", 0.90))), body_y_start, body_y_end - 1)
+                guard_end = _clamp(int(height * float(page_config.get("bottom_guard_end_ratio", page_config["body_end_ratio"]))), guard_start + 1, body_y_end)
+                chunk_id = f"{page.page_id}_chunk_90"
+                output_path = chunks_dir / f"{chunk_id}.png"
+                reused = output_path.exists() and not force
+
+                if reused:
+                    with Image.open(output_path) as existing:
+                        chunk_width, chunk_image_height = existing.size
+                else:
+                    body = image.crop((0, guard_start, width, guard_end))
+                    if attach_header:
+                        chunk_image = Image.new("RGB", (width, header.height + body.height), "white")
+                        chunk_image.paste(header, (0, 0))
+                        chunk_image.paste(body, (0, header.height))
+                    else:
+                        chunk_image = body
+                    chunk_image.save(output_path)
+                    chunk_width, chunk_image_height = chunk_image.size
+
+                chunks.append(
+                    ChunkImage(
+                        chunk_id=chunk_id,
+                        page_number=page.page_number,
+                        chunk_index=90,
+                        image_path=output_path,
+                        width=chunk_width,
+                        height=chunk_image_height,
+                        source_y_start=guard_start,
+                        source_y_end=guard_end,
+                        header_y_start=header_y_start,
+                        header_y_end=header_y_end if attach_header else 0,
+                        reused=reused,
+                    )
+                )
+
     manifest_path = chunks_dir / "chunks_manifest.json"
     manifest_path.write_text(
         json.dumps([_chunk_to_json(chunk) for chunk in chunks], ensure_ascii=False, indent=2),
