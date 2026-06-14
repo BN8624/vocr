@@ -507,6 +507,8 @@ def _repair_hyundai_shifted_rows(
         return True
     if _repair_hyundai_direct_amount_row(transaction, cells):
         return True
+    if _repair_hyundai_missing_billing_same_as_amount(transaction, header, cells):
+        return True
     return _repair_hyundai_small_amount_with_billing(transaction) or repaired
 
 
@@ -549,6 +551,8 @@ def _repair_hyundai_split_content_row(transaction: dict[str, Any], cells: list[s
     transaction["amount"] = amount
     if billing_amount is not None:
         transaction["billing_amount"] = billing_amount
+    elif 0 < amount < 1000 and _hyundai_can_default_billing_to_amount(cells):
+        transaction["billing_amount"] = amount
     transaction["transaction_type"] = ""
     return True
 
@@ -709,6 +713,38 @@ def _repair_hyundai_direct_amount_row(transaction: dict[str, Any], cells: list[s
         if billing_amount is not None:
             transaction["billing_amount"] = billing_amount
     return True
+
+
+def _repair_hyundai_missing_billing_same_as_amount(
+    transaction: dict[str, Any],
+    header: list[str],
+    cells: list[str],
+) -> bool:
+    if transaction.get("billing_amount") is not None:
+        return False
+    amount = transaction.get("amount")
+    if not isinstance(amount, int):
+        return False
+    if amount <= 0 or amount >= 1000:
+        return False
+    if not transaction.get("date") or not transaction.get("card_label") or not transaction.get("merchant"):
+        return False
+    normalized_header = {re.sub(r"\s+", "", str(value)) for value in header}
+    if not any(label in normalized_header for label in ("결제원금", "결제원금(원)", "청구금액")):
+        return False
+    if not _hyundai_can_default_billing_to_amount(cells):
+        return False
+    transaction["billing_amount"] = amount
+    return True
+
+
+def _hyundai_can_default_billing_to_amount(cells: list[str]) -> bool:
+    if len(cells) > 5 and str(cells[5]).strip():
+        return False
+    if len(cells) > 6 and str(cells[6]).strip():
+        return False
+    joined = " ".join(str(value) for value in cells)
+    return not any(token in joined for token in ("M포인트", "포인트사용", "캐시백", "마일리지", "바우처"))
 
 
 def _repair_hyundai_small_amount_with_billing(transaction: dict[str, Any]) -> bool:

@@ -97,3 +97,12 @@ pages 7-8은 원본 4,015,699 대비 billing_amount_total 3,998,599로 17,100 �
 KB 전용 합산 후보 오염을 제거해서 현재 checksum_status는 no_user_total_selected다.
 다음 작업은 pages 7-8의 17,100 부족을 원본 이미지 또는 raw cells 증거로 확정하는 것이다.
 ```
+
+## 2026-06-15 Latest Hyundai Page 7-8 Edge Case
+
+```text
+현대카드_8 page+gemma 기준으로 확인된 보정은 page 7 스마트로 - 춘천시청 600원 결제원금 누락뿐이다.
+보정 후 pages 7-8은 원본 총 합계 결제원금 4,015,699와 row billing_amount_total 3,999,199 사이에 16,500원 차이가 남는다.
+16,500원은 원본 행, raw cells, PDF 텍스트에서 확인되지 않았으므로 자동 보정하거나 리볼빙으로 단정하지 않는다.
+현재 처리 방침은 화면에 7-8페이지 16,500원 차이로 안내하고 엣지케이스로 남기는 것이다.
+```

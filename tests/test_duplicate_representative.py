@@ -85,6 +85,7 @@ def main() -> int:
         _assert_hyundai_split_content_row_repaired(root / "hyundai_split_content")
         _assert_hyundai_actual_principal_row_repaired(root / "hyundai_actual_principal")
         _assert_hyundai_highpass_count_row_repaired(root / "hyundai_highpass_count")
+        _assert_hyundai_missing_billing_repaired_from_amount(root / "hyundai_missing_billing")
         _assert_same_chunk_repeated_transactions_kept(root / "same_chunk_repeated")
         _assert_bottom_guard_overlap_duplicate_excluded(root / "bottom_guard_overlap")
 
@@ -606,6 +607,38 @@ def _assert_hyundai_highpass_count_row_repaired(root: Path) -> None:
     assert normalization_output.billing_amount_total == 12000
     rows = _read_jsonl(normalization_output.transactions_path)
     assert rows[0]["quality"]["needs_review"] is False
+
+
+def _assert_hyundai_missing_billing_repaired_from_amount(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    header = ["이용일", "이용카드", "이용가맹점", "이용금액", "할부/회차", "적립/할인율(%)", "예상적립/할인", "결제원금", "결제후 잔액", "수수료(이자)"]
+    rows = [
+        ["04.28", "본인 ZERO 포인트형", "(주) 스마트로 - 춘천시청", "600", "", "", "", "", "", ""],
+        ["04.28", "본인 ZERO 포인트형", "M포인트 사용", "", "", "", "-600", "", "", ""],
+    ]
+    merge_output = build_row_outputs(
+        vision_results=[_vision_with_header("page_007", header, rows, page_number=7)],
+        chunks=[_chunk("page_007", root / "page_007.png", 7, page_number=7)],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[_mapping_group_for(header, ["date", "card_label", "merchant", "amount", "extra", "extra", "discount", "billing_amount", "extra", "extra"])],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(merge_output=merge_output, mapping_output=mapping_output, merged_dir=merged_dir)
+    assert normalization_output is not None
+    rows = _read_jsonl(normalization_output.transactions_path)
+    assert normalization_output.transaction_count == 1
+    assert normalization_output.amount_total == 600
+    assert normalization_output.billing_amount_total == 600
+    assert rows[0]["transaction"]["billing_amount"] == 600
 
 
 def _assert_same_chunk_repeated_transactions_kept(root: Path) -> None:

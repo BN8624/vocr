@@ -58,7 +58,6 @@ def build_review_html(
                 ("정규화 확인", normalization_review_count),
                 ("검증 이슈", validation_issue_count),
                 ("검산", _checksum_label(checksum_status)),
-                ("리볼빙", "있음" if _detect_revolving(validation_output) else "없음"),
             ]
         ),
     ]
