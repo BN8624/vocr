@@ -78,9 +78,11 @@ Treat it as a Hyundai billing_amount extraction or omission issue.
 - 삼성카드_7 page+gemma: timeout 200초/RPM 15로 신규 추출 완료. 7호출/0에러, 248행,
   정규화 리뷰 0, 검증 0, 자동화 수락률 100%. page 헤더(`이용금액/원금/혜택금액`)에서는
   `원금`을 amount로 보정하고 `혜택금액`은 discount로 분리한다.
+- KB `kb_bzcard_13` page+gemma: 13호출/0에러, 173행, 정규화 리뷰 0, 검증 0,
+  자동화 수락률 100%. `KB 페이지별 이번달 결제금액 합산=28,301,920`이 amount_total과 자동 일치한다.
 
 [다음 시작점 — 전부 캐시 dry-run, API 불필요]
-1. 현대/KB도 gemma page 모드로 1회씩 추출해 범용성 검증.
+1. 현대 샘플도 gemma page 모드로 1회 추출해 범용성 검증.
 2. chunk 모드 100% 샘플 대비 page+gemma 비교 후 기본 모드 전환 판단.
 실행: python main.py --input "견본/<카드>.pdf" --output output/<dir> --extraction-mode page [--dry-run|--force-vision]
 ```

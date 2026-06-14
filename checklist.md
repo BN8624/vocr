@@ -235,5 +235,6 @@
 - [x] 검산 실질화: gemma `amount_total≈31.2M`이 원본 총합계(신한 페이지별 총합계 합산)와 진짜 reconcile되는지, 현재 `auto_selected_total_matched`가 degenerate(billing 0=0) 매치인지 확인.
 - [x] 신한_11 gemma dry-run 최종 확인: 510행, 정규화 리뷰 0, 검증 이슈 0, `amount_total=30,707,955`, `matched_field=amount_total`, `matched_total=페이지별 총합계 원금 합산`, 자동화 수락률 100%.
 - [x] 삼성카드_7 gemma page 모드 신규 추출: timeout 200초/RPM 15, 7호출/0에러, 248행, 정규화 리뷰 0, 검증 이슈 0, `checksum_status=auto_selected_total_matched`, 자동화 수락률 100%.
-- [ ] 다른 샘플(현대/KB) gemma page 모드 범용성 검증(각 1회 API 추출 후 dry-run 비교).
+- [x] KB `kb_bzcard_13` gemma page 모드 신규 추출: 13호출/0에러, 173행, 정규화 리뷰 0, 검증 이슈 0, `matched_total=KB 페이지별 이번달 결제금액 합산 28,301,920`, 자동화 수락률 100%.
+- [ ] 현대 샘플 gemma page 모드 범용성 검증(1회 API 추출 후 dry-run 비교).
 - [ ] 기존 chunk 모드 100% 샘플 대비 page+gemma 정확도 비교 후 기본 모드 전환 판단.

@@ -343,3 +343,9 @@
 - RPM은 이미 `main.py`/`config.yaml` 기준 15였고, 내부 fallback 10을 내가 잘못 읽었다. timeout만 200초로 올려 처음부터 다시 추출하니 7페이지 모두 성공했다.
 - 삼성 page+gemma 헤더는 `이용일|이용카드|가맹점|이용금액|원금|이용혜택|혜택금액|포인트명|적립금액`으로 들어온다. 기존 삼성 보정은 `입금하실금액` 헤더에만 반응해 `이용금액`을 amount로 잡았으므로, page 헤더 전용으로 `원금`을 amount, `혜택금액`을 discount, `이용금액`을 extra로 보정했다.
 - 최종 결과: `python main.py --input "견본/삼성카드_7.pdf" --output output/acceptance_samsung_7_gemma --extraction-mode page --force-vision` 후 캐시 dry-run, `vision_ok=7`, `transaction_count=248`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, 자동화 수락률 100%.
+
+## 2026-06-14 KB `kb_bzcard_13` page+gemma 신규 추출
+
+- 신한/삼성과 같은 page+gemma 경로로 `output/acceptance_kb_bzcard_13_gemma`를 새로 만들었다. timeout 200초/RPM 15 설정에서 13페이지 모두 API 호출 성공했고 error cache는 없었다.
+- KB는 기존 2단 보정(`이용카드|이용일|이용 가맹점|가맹점 소재지|이용금액|현지금액|이번달 결제금액|적립예정 포인트리`, 4자리 월일 날짜, 페이지별 이번달 결제금액 합산)이 page+gemma 출력에도 그대로 맞았다. 추가 코드 수정은 필요 없었다.
+- 최종 결과: `python main.py --input "견본/kb_bzcard_13.pdf" --output output/acceptance_kb_bzcard_13_gemma --extraction-mode page --force-vision`, `vision_ok=13`, `transaction_count=173`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `matched_total=KB 페이지별 이번달 결제금액 합산 28,301,920`, 자동화 수락률 100%.
