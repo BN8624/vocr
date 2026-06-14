@@ -200,6 +200,8 @@ def _normalized_duplicate_keys(row: dict[str, Any]) -> list[tuple[Any, ...]]:
 
 
 def _normalized_duplicate_merchants_match(rows: list[dict[str, Any]]) -> bool:
+    if any(_has_merchant_ocr_review(row) for row in rows):
+        return True
     merchant_keys = []
     for row in rows:
         transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
@@ -210,6 +212,12 @@ def _normalized_duplicate_merchants_match(rows: list[dict[str, Any]]) -> bool:
         return False
     first = merchant_keys[0]
     return all(_normalized_duplicate_merchant_match(first, key) for key in merchant_keys)
+
+
+def _has_merchant_ocr_review(row: dict[str, Any]) -> bool:
+    quality = row.get("quality", {}) if isinstance(row.get("quality"), dict) else {}
+    reason = str(quality.get("review_reason", "")).lower()
+    return bool(quality.get("needs_review")) and "merchant" in reason and "ocr" in reason
 
 
 def _normalized_duplicate_merchant_match(left: str, right: str) -> bool:

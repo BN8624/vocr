@@ -78,6 +78,7 @@ def main() -> int:
         _assert_non_adjacent_duplicates_need_review(root / "non_adjacent")
         _assert_normalized_variant_duplicates_excluded(root / "normalized_variant")
         _assert_same_amount_different_merchants_kept(root / "different_merchants")
+        _assert_merchant_ocr_variant_duplicate_excluded(root / "merchant_ocr_variant")
         _assert_installment_variant_duplicates_excluded(root / "installment_variant")
         _assert_hyundai_combined_header_row_repaired(root / "hyundai_combined_header")
 
@@ -278,6 +279,54 @@ def _assert_same_amount_different_merchants_kept(root: Path) -> None:
     assert normalization_output.summary["normalized_duplicate_excluded_count"] == 0
 
 
+def _assert_merchant_ocr_variant_duplicate_excluded(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    chunks = [
+        _chunk("page_001_chunk_01", root / "chunk_01.png", 1),
+        _chunk("page_001_chunk_02", root / "chunk_02.png", 2),
+    ]
+    vision_results = [
+        _vision_with_header(
+            "page_001_chunk_01",
+            ["date", "card", "merchant", "amount", "billing"],
+            [["03.14", "the Purple", "clear merchant", "10,000", "10,000"]],
+        ),
+        _vision_with_header(
+            "page_001_chunk_02",
+            ["date", "card", "merchant", "amount", "billing"],
+            [["03.14", "the Purple", "garbled merchant", "10,000", "10,000"]],
+            review_reasons=["OCR read error for merchant name"],
+        ),
+    ]
+    merge_output = build_row_outputs(
+        vision_results=vision_results,
+        chunks=chunks,
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[
+            _mapping_group_for(["date", "card", "merchant", "amount", "billing"], ["date", "card_label", "merchant", "amount", "billing_amount"])
+        ],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping_output,
+        merged_dir=merged_dir,
+    )
+    assert normalization_output is not None
+    assert normalization_output.transaction_count == 1
+    assert normalization_output.amount_total == 10000
+    assert normalization_output.summary["normalized_duplicate_excluded_count"] == 1
+
+
 def _assert_installment_variant_duplicates_excluded(root: Path) -> None:
     output_dir = root / "output"
     merged_dir = output_dir / "merged"
@@ -380,6 +429,7 @@ def _vision_with_header(
     header: list[str],
     cells_list: list[list[str]],
     page_number: int = 1,
+    review_reasons: list[str] | None = None,
 ) -> VisionResult:
     result = _vision(chunk_id, cells_list)
     result = VisionResult(
@@ -395,6 +445,10 @@ def _vision_with_header(
     assert result.data is not None
     result.data["header"] = header
     result.data["page"] = page_number
+    if review_reasons:
+        for row, reason in zip(result.data.get("rows", []), review_reasons):
+            row["needs_review"] = bool(reason)
+            row["review_reason"] = reason
     return result
 
 
