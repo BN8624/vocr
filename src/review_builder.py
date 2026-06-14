@@ -123,13 +123,13 @@ def _transaction_count(
 
 
 def _simple_mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
-    rows = []
+    review_count = 0
     for group in mapping_output.table_groups:
         for column in group.get("columns", []):
             if not isinstance(column, dict) or not column.get("requires_review"):
                 continue
-            rows.append(_simple_mapping_column_row(column, mapping_output.option_labels))
-    if not rows:
+            review_count += 1
+    if not review_count:
         return ""
     return (
         '<div id="mapping" class="mapping-panel" '
@@ -138,32 +138,11 @@ def _simple_mapping_block(review_path: Path, mapping_output: MappingOutput) -> s
         '<div class="mapping-header">'
         "<h3>열 역할 확인</h3>"
         "</div>"
-        f'<p class="note">자동 판정이 애매한 열 {len(rows)}개가 있습니다. 이 화면에서는 직접 고치지 않고 원인 확인용으로만 보여줍니다.</p>'
-        '<details class="technical-details">'
-        f"<summary>열 후보 보기 ({len(rows)}개)</summary>"
-        '<div class="mapping-table">'
-        '<div class="mapping-table-head"><span>원본 컬럼</span><span>샘플</span><span>자동 추정</span></div>'
-        f"{''.join(rows)}"
-        "</div>"
-        "</details>"
+        f'<p class="note">자동 판정이 애매한 열 {review_count}개가 있습니다. 이 화면에서는 직접 고치지 않고 원인 확인용으로만 보여줍니다.</p>'
+        '<p class="note">후보 목록은 숨겼습니다. 필요한 경우 기술 파일의 열 역할 후보 JSON만 확인합니다.</p>'
         "</div>"
     )
 
-
-def _simple_mapping_column_row(column: dict[str, Any], option_labels: dict[str, str]) -> str:
-    column_id = str(column.get("column_id", ""))
-    suggested = str(column.get("suggested_field", "extra"))
-    samples = column.get("sample_values", [])
-    sample_text = " / ".join(escape(str(value)) for value in samples[:3]) if isinstance(samples, list) else ""
-    label = option_labels.get(suggested, suggested)
-    return (
-        '<div class="mapping-column needs-review" '
-        f'data-column-id="{escape(column_id)}" data-original-field="{escape(suggested)}">'
-        f"<strong>{escape(str(column.get('header') or column_id))}</strong>"
-        f'<span class="sample-values">{sample_text}</span>'
-        f"<span>{escape(str(label))}</span>"
-        "</div>"
-    )
 
 def _simple_validation_block(review_path: Path, validation_output: ValidationOutput) -> str:
     summary = validation_output.summary
@@ -804,27 +783,6 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
     auto_matches = [
         item for item in checksum.get("auto_match_candidates", []) if isinstance(item, dict)
     ]
-    selected_total_id = str(checksum.get("selected_total_id", ""))
-    auto_match_ids = {
-        str(item.get("candidate", {}).get("id", ""))
-        for item in auto_matches
-        if isinstance(item, dict) and isinstance(item.get("candidate"), dict)
-    }
-    all_candidate_items = []
-    for candidate in _rank_checksum_candidates(candidates):
-        candidate_id = str(candidate.get("id", ""))
-        marker = "선택됨" if candidate_id and candidate_id == selected_total_id else ("자동일치" if candidate_id in auto_match_ids else "후보")
-        amount_text = str(candidate.get("value_text") or candidate.get("amount", ""))
-        source_text = f"p{candidate.get('page', '')} {candidate.get('chunk_id', '')}".strip()
-        all_candidate_items.append(
-            '<div class="checksum-candidate muted">'
-            f"<strong>{escape(marker)}</strong>"
-            "<span>"
-            f"{escape(str(candidate.get('label', '원본 합계')))}: {escape(amount_text)}"
-            f"<small>{escape(source_text)}</small>"
-            "</span>"
-            "</div>"
-        )
     reason = "자동으로 확정할 수 있는 합계 후보가 없습니다."
     if auto_matches:
         reason = "자동 일치 후보가 있으나 우선순위가 충분히 안전하지 않습니다."
@@ -842,13 +800,7 @@ def _checksum_details(review_path: Path, state_path: Path, checksum: dict[str, A
         f"<div><strong>원본 후보</strong><span>{len(candidates)}</span></div>"
         "</div>"
         f"{reconciliation_html}"
-        '<p class="note">후보 목록은 판단용 선택지가 아니라 기술 로그라서 접어두었습니다.</p>'
-        '<details class="technical-details">'
-        f"<summary>전체 원본 합계 후보 보기 ({len(candidates)}개)</summary>"
-        '<div class="checksum-candidates">'
-        f"{''.join(all_candidate_items)}"
-        "</div>"
-        "</details>"
+        '<p class="note">원본 합계 후보 목록은 숨겼습니다. 필요한 경우 기술 파일의 검증 요약 JSON만 확인합니다.</p>'
         "</section>"
     )
 
@@ -881,23 +833,6 @@ def _section_reconciliation_summary(reconciliation: dict[str, Any] | None) -> st
         "</div>"
         "</details>"
     )
-
-
-def _rank_checksum_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return sorted(candidates, key=_review_total_candidate_score, reverse=True)
-
-
-def _review_total_candidate_score(candidate: dict[str, Any]) -> int:
-    label = str(candidate.get("label", "")).replace(" ", "").lower()
-    if "총합계" in label or label == "합계":
-        return 100
-    if any(token in label for token in ("청구금액", "결제금액", "이번달")):
-        return 90
-    if "합계" in label:
-        return 80
-    if any(token in label for token in ("소계", "총")):
-        return 60
-    return 10
 
 
 def _format_amount(value: Any) -> str:
