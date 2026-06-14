@@ -216,3 +216,26 @@
 - `sop010.html`은 PDF를 페이지 이미지로 렌더링하고 1페이지를 먼저 호출해 헤더를 확정한 뒤 이후 페이지에 knownHeader를 넘긴다. RPM은 한도보다 2 낮은 슬롯으로 제한하고 429는 30초 대기 후 재시도한다.
 - KB 보정 후 최종 `output/acceptance_kb_bzcard_13` 결과는 `llm_calls=0`, `vision_ok=65`, `vision_errors=0`, `transaction_count=173`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `matched_total=KB 페이지별 이번달 결제금액 합산 28,301,920`, `difference=0`이다.
 - 현대카드_8은 거래 추출과 행 검증 기준으로는 종료 상태다. 다만 샘플 완전 종료 선언은 원본 총합계 기준이 자동 확정되거나 사용자가 총합계 기준을 선택해서 `checksum_status`가 matched 상태가 되어야 한다.
+
+## 2026-06-14 현대카드_8 중단 지점 인수인계
+
+- 사용자 요청으로 작업을 중단하고 문서 정리만 수행했다. 코드와 산출물은 수정하지 않았다.
+- 현재 워크트리는 추적 파일 기준으로는 깨끗했으며, 사용자 파일로 보이는 `견본/`만 untracked 상태였다. 문서 정리 후에는 `checklist.md`, `context-notes.md`, `STATUS.md`만 변경 대상이어야 한다.
+- 사용자의 최신 판단은 현대카드 명세서의 원본 합계 기준이 결제원금 열이라는 것이다. 따라서 현대카드_8에서 비교해야 할 주된 내부 합계는 `billing_amount_total`이다.
+- 현재 `output/acceptance_hyundai_8/merged/validation_summary.json`의 합계 정보는 최상위가 아니라 `checksum` 아래에 있다.
+- 현재 현대카드_8 `checksum.amount_total`은 `34,679,296`이고 `checksum.billing_amount_total`은 `34,435,671`이다.
+- 원본 `총 합계` 후보의 페이지별 값은 page 2 `11,133,210`, page 4 `9,260,937`, page 6 `10,113,565`, page 8 `4,015,699`이다. 네 값을 합치면 `34,523,411`이다.
+- 따라서 원본 결제원금 총합 기준과 현재 `billing_amount_total`의 차이는 `87,740`이다. 원본 쪽이 더 크다.
+- 현재 `checksum.status`는 `no_user_total_selected`이고 `checksum_review_required`는 `true`다. 사용자가 합계 기준을 이미 결제원금이라고 확정했으므로 다음 작업은 UI 선택 문제가 아니라 현대카드_8 결제원금 합계 불일치 원인 제거다.
+- `output/acceptance_hyundai_8/merged/section_reconciliation.json` 기준 pages 1-2는 원본 `11,133,210`, `amount_total 11,079,970`, `billing_amount_total 11,061,970`이며 원본 대비 결제원금이 `71,240` 부족하다.
+- pages 3-4는 원본 `9,260,937`, `amount_total 9,471,582`, `billing_amount_total 9,260,937`로 결제원금이 일치한다.
+- pages 5-6은 원본 `10,113,565`, `amount_total 10,123,565`, `billing_amount_total 10,113,565`로 결제원금이 일치한다.
+- pages 7-8은 원본 `4,015,699`, `amount_total 4,004,179`, `billing_amount_total 3,999,199`이며 원본 대비 결제원금이 `16,500` 부족하다.
+- pages 1-2의 직접 원인은 해외 상세 결제원금 중복 제외 규칙과 본문 결제원금 복구 사이의 경계로 보인다. 현재 섹션 리포트에서 `foreign_detail.billing_amount_total`은 `169,360`이고, 이를 모두 제외한 뒤에도 원본 대비 `71,240`이 부족하다.
+- pages 1-2에서 이미 확인된 해외 상세 값은 `45,835`, `16,519`, `20,519`, `86,487`이고 합계가 `169,360`이다. 이 중 어떤 값을 본문 결제원금 대체값으로 써야 하는지 다시 원본 이미지와 raw cells 기준으로 확인해야 한다.
+- pages 7-8은 현재 행 수가 원본 요약보다 1건 적은 정황이 있으며 원본 대비 결제원금 부족액이 정확히 `16,500`이다. page 8 하단부의 `강릉서부시장번영회 3,000`, `강릉불고기초당점 15,000`, `한국도로공사 33,900`, `스마트로 - 춘천시청 1,800` 주변이 먼저 확인 대상이다.
+- 이전 분석에서는 page 8 하단 보조 청크가 너무 아래쪽만 잡아 총합계 주변은 보지만 총합계 바로 위 거래 일부를 놓칠 수 있다는 의심이 있었다. 다만 넓은 하단 청크는 환각 위험이 있으므로 바로 범위를 키우기보다 현재 chunk manifest와 cache JSON을 먼저 대조해야 한다.
+- 다음 세션의 첫 확인 명령 후보는 `output/acceptance_hyundai_8/chunks/chunks_manifest.json`에서 page 7, page 8 y 범위를 출력하고, `output/acceptance_hyundai_8/cache/page_008_chunk_*.vision.json`의 raw rows에서 위 하단 거래들이 실제로 있는지 찾는 것이다.
+- 코드에서 먼저 볼 파일은 `src/normalizer.py`의 `_is_foreign_detail_billing_row`, `_sum_amount`, 현대카드 헤더 기반 `billing_amount` 복구 로직이고, 이어서 `src/reconciliation.py`의 섹션 분류 로직이다.
+- 원칙은 결제원금 합계를 억지로 맞추는 조정값을 넣지 않는 것이다. 원본 이미지 또는 raw cells에서 누락, 열밀림, 해외 상세 대체 관계가 증명되는 경우에만 최소 규칙을 추가한다.
+- 관련 테스트로는 최소 `python -X utf8 tests\test_checksum_selection.py`, `python -X utf8 tests\test_profile_signature.py`, `python -X utf8 tests\test_validation_fixtures.py`, `python -X utf8 tests\test_duplicate_representative.py`를 다시 실행한다. 현대카드 보정 테스트를 추가했다면 해당 테스트도 함께 실행한다.

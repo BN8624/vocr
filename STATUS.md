@@ -34,8 +34,22 @@ NEEDS_VERIFICATION
 ## Current P0 Focus
 
 ```text
-1. Strengthen tests/regression_samples.py as the acceptance runner.
-2. Generate merged/automation_summary.json per sample.
-3. Add row-level automation status and rates.
-4. Improve the first cached sample's automation quality: lower review issues and resolve total selection.
+1. Finish 현대카드_8 checksum by reconciling original 결제원금 totals with billing_amount_total.
+2. Investigate pages 1-2 deficit 71,240 and pages 7-8 deficit 16,500 from cached Hyundai outputs.
+3. Add only evidence-backed normalization/chunk recovery rules, then rerun 현대카드_8 from cache.
+4. Re-run focused checksum, profile, validation, and duplicate tests before committing.
+```
+
+## 2026-06-14 Handoff
+
+```text
+현대카드_8 latest checksum basis is 결제원금.
+Original 총 합계 page sum is 34,523,411.
+Current checksum.billing_amount_total is 34,435,671.
+Remaining deficit is 87,740.
+Pages 3-4 and 5-6 match billing_amount_total.
+Pages 1-2 are short by 71,240.
+Pages 7-8 are short by 16,500.
+Do not solve this as a manual total selection UI issue.
+Treat it as a Hyundai billing_amount extraction or omission issue.
 ```
