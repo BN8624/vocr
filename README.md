@@ -167,7 +167,44 @@ profile conflicts
 amount candidate conflicts
 ```
 
-## Simple Run
+## Convert PDFs To Excel
+
+For normal use, run `convert.py`. It creates one output folder per PDF and writes `result.xlsx`.
+
+Single PDF:
+
+```bash
+python convert.py "견본\현대카드_8.pdf"
+```
+
+Folder of PDFs:
+
+```bash
+python convert.py "견본"
+```
+
+Default outputs:
+
+```text
+output/converted/<pdf-name>/
+  result.xlsx
+  review.html
+  summary.json
+  merged/
+```
+
+Useful options:
+
+```bash
+python convert.py "견본\현대카드_8.pdf" --output output/my_statement
+python convert.py "견본" --output-root output/batch_run --continue-on-error
+python convert.py "견본\현대카드_8.pdf" --dry-run
+python convert.py "견본\현대카드_8.pdf" --force-vision
+```
+
+`--dry-run` reuses existing Vision cache and does not call the external API. For a new PDF, omit `--dry-run` and make sure `GEMINI_API_KEY` is set in `.env` or the environment.
+
+`review.py` is for converting one PDF and starting the local review server after conversion.
 
 For one PDF:
 

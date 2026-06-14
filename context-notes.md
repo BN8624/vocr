@@ -366,3 +366,10 @@
 - pages 7-8 raw rows, Vision cache, PDF 텍스트 추출, 렌더 이미지 육안 확인에서 16,500원 거래 행은 확인하지 못했다.
 - 따라서 16,500원은 자동 보정하거나 이월/리볼빙으로 단정하지 않는다. 화면에는 `7-8페이지 16,500원 차이`로 남기고, 원본에서 금액 근거가 확인되지 않는 엣지케이스로 처리한다.
 - 현재 목표는 이 차이를 맞추는 것이 아니라, 확인된 600원 복구를 유지하면서 전체 실사용 흐름이 깨지지 않는지 점검하는 것이다.
+
+## 2026-06-15 실사용 변환 진입점
+
+- `convert.py`를 추가해 PDF 파일 또는 PDF 폴더를 바로 Excel 산출물로 변환하는 구조를 만들었다.
+- 기본 명령은 `python convert.py "견본\현대카드_8.pdf"`이며 출력은 `output/converted/<pdf-name>/result.xlsx`다.
+- 기본 추출 모드는 현재 검증한 page mode다. 새 PDF는 `--dry-run` 없이 실행하고, 기존 Vision cache를 재사용할 때만 `--dry-run`을 쓴다.
+- 실사용 smoke는 `python convert.py "견본\현대카드_8.pdf" --output output/acceptance_hyundai_8_gemma --dry-run`으로 확인했다.

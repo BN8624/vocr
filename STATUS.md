@@ -106,3 +106,14 @@ KB 전용 합산 후보 오염을 제거해서 현재 checksum_status는 no_user
 16,500원은 원본 행, raw cells, PDF 텍스트에서 확인되지 않았으므로 자동 보정하거나 리볼빙으로 단정하지 않는다.
 현재 처리 방침은 화면에 7-8페이지 16,500원 차이로 안내하고 엣지케이스로 남기는 것이다.
 ```
+
+## 2026-06-15 Latest Usable Entry Point
+
+```text
+실사용 진입점은 convert.py다.
+단일 PDF: python convert.py "견본\현대카드_8.pdf"
+폴더 일괄: python convert.py "견본"
+기본 출력: output/converted/<pdf-name>/result.xlsx
+새 PDF는 --dry-run 없이 실행해야 Vision API를 호출한다.
+--dry-run은 기존 output cache가 있을 때만 재검증용으로 사용한다.
+```
