@@ -19,12 +19,17 @@ def main() -> int:
         merged_dir = root / "merged"
         merged_dir.mkdir()
         transactions_path = merged_dir / "transactions.jsonl"
+        rows_merged_path = merged_dir / "rows_merged.jsonl"
         rows = [
             _row(page=1, amount=1000, merchant="store"),
             _row(page=2, amount=0, merchant="foreign detail", header=["이용일", "국가", "해외이용금액", "결제원금(원)"], billing_amount=1000),
             _row(page=2, amount=0, merchant="M포인트", header=["이용일", "종류", "이용포인트/캐시백/마일리지"]),
         ]
         _write_jsonl(transactions_path, rows)
+        _write_jsonl(rows_merged_path, [
+            _raw_row(page=1, cells=["01.01", "본인", "M포인트 사용", "-1,000"]),
+            _raw_row(page=1, cells=["01.01", "본인", "M포인트 사용", "-1,000"]),
+        ])
         summary_path = merged_dir / "normalization_summary.json"
         summary_path.write_text(json.dumps({"amount_total": 1000, "billing_amount_total": 1000}, ensure_ascii=False), encoding="utf-8")
         normalization = NormalizationOutput(
@@ -55,6 +60,9 @@ def main() -> int:
         assert pair["pages"] == [1, 2]
         assert pair["section_totals"]["billing_detail"]["amount_total"] == 1000
         assert pair["section_totals"]["foreign_detail"]["billing_amount_total"] == 1000
+        assert pair["raw_adjustment_totals"]["raw_benefit_dated"]["row_count"] == 2
+        assert pair["raw_adjustment_totals"]["raw_benefit_dated"]["unique_row_count"] == 1
+        assert pair["raw_adjustment_totals"]["raw_benefit_dated"]["unique_amount_total"] == -1000
         assert pair["explanation"]["status"] == "matched"
 
     print("section reconciliation test passed")
@@ -82,6 +90,14 @@ def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
     with path.open("w", encoding="utf-8") as file:
         for row in rows:
             file.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _raw_row(page: int, cells: list[str]) -> dict[str, object]:
+    return {
+        "source": {"file": "현대카드_8.pdf", "page": page, "chunk_id": f"page_{page:03d}_chunk_01", "local_row_index": 2},
+        "raw": {"header": ["이용일", "이용카드", "이용가맹점", "이용금액"], "cells": cells},
+        "merge": {"decision": "duplicate_excluded"},
+    }
 
 
 if __name__ == "__main__":

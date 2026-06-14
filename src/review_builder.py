@@ -819,10 +819,11 @@ def _section_reconciliation_summary(reconciliation: dict[str, Any] | None) -> st
         source_amount = source_total.get("amount", "")
         difference = pair.get("difference", "")
         explanation = pair.get("explanation", {}) if isinstance(pair.get("explanation"), dict) else {}
+        raw_summary = _raw_adjustment_summary(pair.get("raw_adjustment_totals", {}))
         rows.append(
             '<div class="reason-item">'
             f"<strong>{escape(page_text)}</strong>"
-            f"<span>원본 {escape(_format_amount(source_amount))} · 거래 {escape(_format_amount(pair.get('amount_total', '')))} · 차이 {escape(_format_amount(difference))} · {escape(str(explanation.get('status', '')))}</span>"
+            f"<span>원본 {escape(_format_amount(source_amount))} · 거래 {escape(_format_amount(pair.get('amount_total', '')))} · 차이 {escape(_format_amount(difference))} · {escape(str(explanation.get('status', '')))}{raw_summary}</span>"
             "</div>"
         )
     return (
@@ -833,6 +834,23 @@ def _section_reconciliation_summary(reconciliation: dict[str, Any] | None) -> st
         "</div>"
         "</details>"
     )
+
+
+def _raw_adjustment_summary(raw_adjustments: Any) -> str:
+    if not isinstance(raw_adjustments, dict):
+        return ""
+    parts = []
+    for section, totals in raw_adjustments.items():
+        if not isinstance(totals, dict):
+            continue
+        amount = totals.get("unique_amount_total")
+        count = totals.get("unique_row_count")
+        if not amount:
+            continue
+        parts.append(f"{section} {count}건 {_format_amount(amount)}")
+    if not parts:
+        return ""
+    return " · 제외행 " + ", ".join(parts)
 
 
 def _format_amount(value: Any) -> str:
