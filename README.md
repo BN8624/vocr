@@ -169,6 +169,14 @@ amount candidate conflicts
 
 ## Convert PDFs To Excel
 
+PC desktop app:
+
+```bash
+python app.py
+```
+
+The app lets you select PDF files, choose an output folder, start conversion, watch the progress bar and blinking current step, then open the generated Excel file.
+
 For normal use, run `convert.py`. It creates one output folder per PDF and writes `result.xlsx`.
 
 Single PDF:

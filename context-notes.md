@@ -373,3 +373,10 @@
 - 기본 명령은 `python convert.py "견본\현대카드_8.pdf"`이며 출력은 `output/converted/<pdf-name>/result.xlsx`다.
 - 기본 추출 모드는 현재 검증한 page mode다. 새 PDF는 `--dry-run` 없이 실행하고, 기존 Vision cache를 재사용할 때만 `--dry-run`을 쓴다.
 - 실사용 smoke는 `python convert.py "견본\현대카드_8.pdf" --output output/acceptance_hyundai_8_gemma --dry-run`으로 확인했다.
+
+## 2026-06-15 PC GUI 진입점
+
+- `app.py`를 추가해 PC 전용 GUI를 만들었다. 서버를 띄우지 않고 로컬 Python 프로세스로 `main.py`를 실행한다.
+- UI 흐름은 PDF 선택, 출력 폴더 선택, 시작, 진행상황 확인, 완료 후 Excel 열기다.
+- 진행상황은 단계별 progress bar와 현재 단계 깜빡임, 실시간 로그로 표시한다.
+- 단계 매핑은 `main.py` 로그 문구를 기준으로 `PDF 페이지 준비 → AI 표 읽기 → 행 정리 → 열 역할 판정 → 거래 정규화 → 검산 및 검증 → Excel 생성 → 결과 정리 → 완료` 순서다.

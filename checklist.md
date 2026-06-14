@@ -263,3 +263,11 @@
 - [x] 기본 출력 구조를 `output/converted/<pdf-name>/result.xlsx`로 정리.
 - [x] 기존 cache 기반 실사용 smoke 실행.
 - [x] README 사용법 갱신.
+
+## 2026-06-15 PC GUI 진입점
+
+- [x] 서버 없는 `tkinter` GUI `app.py` 추가.
+- [x] PDF 선택 버튼과 출력 폴더 선택 버튼 추가.
+- [x] 시작/중지/Excel 열기/폴더 열기 버튼 추가.
+- [x] 진행바, 현재 단계 깜빡임, 실시간 로그 추가.
+- [x] GUI helper 테스트 추가.

@@ -117,3 +117,13 @@ KB 전용 합산 후보 오염을 제거해서 현재 checksum_status는 no_user
 새 PDF는 --dry-run 없이 실행해야 Vision API를 호출한다.
 --dry-run은 기존 output cache가 있을 때만 재검증용으로 사용한다.
 ```
+
+## 2026-06-15 Latest PC GUI
+
+```text
+PC 전용 GUI 진입점은 app.py다.
+실행: python app.py
+서버는 사용하지 않는다.
+PDF 선택 후 시작을 누르면 main.py page mode 파이프라인이 실행되고 result.xlsx가 생성된다.
+진행상황은 단계별 진행바, 깜빡이는 현재 단계, 실시간 로그로 표시한다.
+```
