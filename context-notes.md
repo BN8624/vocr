@@ -328,3 +328,11 @@
 - 따라서 내가 임시로 넣었던 소프트 헤더 힌트와 각색 프롬프트, __total 확장을 충실 이식으로 되돌렸다. 헤더는 강제(파일 내 1쪽 헤더 통일)로 바꿔야 신한 다단 헤더(`할부`+`기간/회차` 등)가 페이지마다 10/11열로 쪼개지는 문제가 사라진다. 사용자도 "강제로 해야 이단헤더 문제가 안 생긴다"고 확정했다.
 - 프롬프트는 `EXTRACT_PROMPT` verbatim으로 복원했고, 검산용 집계행만 verbatim 아래 `__total` 블록으로 분리(2단 확장)했다. 파서는 parseRawText 충실(__skip + AGGREGATE_RE, 강제 헤더, 헤더 순서 cells 정렬).
 - 충실 이식 후 flash-lite 베이스라인은 검증 2(헤더 통일)였으나 일시불/공과금 행 금액이 `원금`이 아닌 `금액`으로 밀리는 열밀림이 남았고, 이는 프롬프트로는 못 잡아 모델 교체(gemma)로 이어졌다. 상세는 위 gemma 항목.
+
+## 2026-06-14 신한_11 page+gemma 마무리
+
+- 신한 page 모드의 검산 기준은 `billing_amount_total`이 아니라 원본 `원금` 합계다. page extractor 결과에서 `billing_amount_total=0`인 상태로 `연회비 합계 원금 0`이 자동 선택되는 것은 퇴행 매칭이므로 0 이하 target은 자동 검산 후보에서 제외했다.
+- 신한_11 원본 페이지별 `총합계 원금`/`종합 합계 원금` 합산은 30,707,955이고, 강제 fallback 제거 후 `amount_total`도 30,707,955로 일치한다. `src/normalizer.py`의 `_repair_shinhan_amount_rows`에서 원금 0을 이용금액으로 되돌리던 fallback은 문서화된 "강제 보정 금지" 원칙에 맞지 않아 제거했다.
+- 원금 0 행은 신한 표에서 `취소`, `부분취소`, `부담경감`, `소비쿠폰`, `면제` 등으로 이번 달 원금이 0인 조정 행이다. 이 행들은 원본 합계에도 0으로 반영되므로 `amount_zero` 검증 이슈에서 제외한다.
+- `03정기1702487618`, `06수신로3473966375` 같은 관리번호 결합 공과금 가맹점은 숫자오염이 아니라 신한 공과금 표기다. 기존 `12전기...` 예외에 더해 `NN정기...`, `NN수신료...`, `NN수신로...` 패턴을 숫자 중심 가맹점 예외로 인정했다.
+- 최종 캐시 dry-run 결과: `python main.py --input "견본/신한카드_11.pdf" --output output/acceptance_shinhan_11_gemma --extraction-mode page --dry-run`, `llm_calls=0`, `vision_ok=11`, `transaction_count=510`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, 자동화 수락률 100%.

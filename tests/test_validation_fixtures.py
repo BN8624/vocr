@@ -33,6 +33,20 @@ def main() -> int:
         assert utility is not None
         assert utility.issue_row_count == 0
 
+        utility_management = _run_rows(
+            temp_root / "utility_management",
+            [
+                _transaction("본인31*", "03정기1702487618", 154980),
+                _transaction("본인31*", "06수신로3473966375", 2500),
+            ],
+        )
+        assert utility_management is not None
+        assert utility_management.issue_row_count == 0
+
+        fee_waiver = _run_rows(temp_root / "fee_waiver", [_fee_waiver_transaction()])
+        assert fee_waiver is not None
+        assert fee_waiver.issue_row_count == 0
+
         invalid_date_row = _transaction("본인31*", "정상가맹점", 1000)
         invalid_date_row["transaction"]["date"] = "2004-11-00"  # type: ignore[index]
         invalid_date = _run_rows(temp_root / "invalid_date", [invalid_date_row])
@@ -205,6 +219,26 @@ def _foreign_transaction() -> dict[str, object]:
         },
         "quality": {"needs_review": False, "review_reason": ""},
         "extra_fields": {"foreign_amount": "USD 598.93", "exchange_rate": "1,500.10", "fee": "898"},
+    }
+
+
+def _fee_waiver_transaction() -> dict[str, object]:
+    return {
+        "source": {"page": 7, "chunk_id": "page_007", "local_row_index": 47},
+        "raw": {
+            "header": ["이용일자", "이용카드", "이용가맹점", "이용금액", "할부기간/회차", "원금", "수수료(이자)", "구분", "금액", "결제 후 잔액"],
+            "cells": ["", "", "", "5,000", "", "0", "", "면제", "-5,000", ""],
+        },
+        "transaction": {
+            "date": "",
+            "card_label": "",
+            "merchant": "",
+            "amount": 5000,
+            "billing_amount": None,
+            "transaction_type": "",
+        },
+        "quality": {"needs_review": False, "review_reason": ""},
+        "extra_fields": {"이용금액": "5,000", "구분": "면제", "discount": "-5,000"},
     }
 
 

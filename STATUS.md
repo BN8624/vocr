@@ -30,7 +30,7 @@ NEEDS_VERIFICATION
 | Selective 2-pass Vision | PLANNED | `newplan.md` P1 | Repairs risky chunks only | Not implemented |
 | `review.html` exception/debug role | PARTIAL | `src/review_builder.py`, `static/review.*` | Shows only judgment-required steps in current UI | Needs automation metrics first screen and hard failure prioritization |
 | `review.py` simple entrypoint | DONE | `review.py`, `tests/test_review_entrypoint.py` | Simplifies single-PDF operation | Must remain secondary to acceptance runner |
-| Page-mode extraction (sop010 port) | PARTIAL | `src/page_extractor.py`, `prompts/page_extract_jsonl.md`, `sop010_dissection.md`, `tests/test_page_extractor.py` | 1단 범용 거름망: 페이지 1장=1 호출, 헤더명 키 JSON, 강제 헤더, 적응형 전처리, gemma-4-31b-it(추론 off) | 2단 튜닝(공과금 false-positive, 검산 실질화)과 타 카드사 범용성 검증 남음 |
+| Page-mode extraction (sop010 port) | PARTIAL | `src/page_extractor.py`, `prompts/page_extract_jsonl.md`, `sop010_dissection.md`, `tests/test_page_extractor.py` | 1단 범용 거름망: 페이지 1장=1 호출, 헤더명 키 JSON, 강제 헤더, 적응형 전처리, gemma-4-31b-it(추론 off) | 신한_11 2단 튜닝 완료. 타 카드사 범용성 검증 남음 |
 
 ## Current P0 Focus
 
@@ -72,14 +72,12 @@ Treat it as a Hyundai billing_amount extraction or omission issue.
 - 프롬프트는 sop010 EXTRACT_PROMPT verbatim + __total(검산용) 2단 확장. 분석은 sop010_dissection.md.
 - page 모드 기본 모델 = gemma-4-31b-it(추론 off: thinkingLevel MINIMAL, 토큰 32768 캡).
   chunk 모드는 gemini-3.1-flash-lite 유지. config: extraction.page_model, CLI: --model.
-- 신한_11 page+gemma: 11호출/0에러, 510행, 정규화 리뷰 1, 검증 6(전부 양성 false-positive:
-  공과금 가맹점명 5 + 기본연회비 1). flash-lite의 일시불 열밀림(금액→원금)이 gemma로 해소됨.
+- 신한_11 page+gemma: 11호출/0에러, 510행, 정규화 리뷰 0, 검증 0, 자동화 수락률 100%.
+  검산은 `billing_amount_total=0` 퇴행 매칭을 막고 `페이지별 총합계 원금 합산=30,707,955`와
+  `amount_total=30,707,955`를 자동 일치시킨다. flash-lite의 일시불 열밀림(금액→원금)이 gemma로 해소됨.
 
 [다음 시작점 — 전부 캐시 dry-run, API 불필요]
-1. 공과금 가맹점 false-positive 6건: 03정기/06수신로 등 관리번호 결합 가맹점을
-   src/validator.py 신한 숫자오염 예외에 추가.
-2. 검산 실질화: amount_total≈31.2M이 원본 총합계와 진짜 reconcile되는지(degenerate 매치 여부) 확인.
-3. 현대/삼성/KB도 gemma page 모드로 1회씩 추출해 범용성 검증.
-4. chunk 모드 100% 샘플 대비 page+gemma 비교 후 기본 모드 전환 판단.
+1. 현대/삼성/KB도 gemma page 모드로 1회씩 추출해 범용성 검증.
+2. chunk 모드 100% 샘플 대비 page+gemma 비교 후 기본 모드 전환 판단.
 실행: python main.py --input "견본/<카드>.pdf" --output output/<dir> --extraction-mode page [--dry-run|--force-vision]
 ```

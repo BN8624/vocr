@@ -155,12 +155,12 @@ def _validate_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]
         amount = transaction.get("amount")
         billing_amount = transaction.get("billing_amount")
 
-        if not _is_date_like(date):
+        if not _is_date_like(date) and not _is_fee_waiver_adjustment_row(transaction, cells):
             issues[key].append(_issue("date_not_date_like", f"날짜처럼 보이지 않습니다: {date or '(비어 있음)'}"))
         if not isinstance(amount, int):
             if not _is_benefit_only_row(transaction, cells) and not _is_foreign_billing_only_row(transaction, cells):
                 issues[key].append(_issue("amount_not_numeric", "이용금액이 숫자가 아닙니다."))
-        elif amount == 0:
+        elif amount == 0 and not _is_zero_principal_adjustment_row(header, cells):
             issues[key].append(_issue("amount_zero", "이용금액이 0입니다. 실제 0원 거래인지 확인이 필요합니다."))
         elif abs(amount) > 100_000_000:
             issues[key].append(_issue("amount_too_large", f"이용금액이 매우 큽니다: {amount:,}"))
@@ -754,6 +754,8 @@ def _is_numeric_merchant_exception(value: str) -> bool:
         return True
     if re.fullmatch(r"카페\d+", text):
         return True
+    if re.fullmatch(r"\d{2}(정기|수신[료로])\d{6,}", text):
+        return True
     utility_tokens = ("전기", "수신료", "도시가스", "관리비", "통신료")
     return any(token in text for token in utility_tokens) and bool(re.search(r"\d", text))
 
@@ -811,6 +813,35 @@ def _is_foreign_billing_only_row(transaction: dict[str, Any], cells: list[str]) 
         return False
     joined = " ".join(cells).lower()
     return "usd" in joined or "해외" in joined
+
+
+def _is_fee_waiver_adjustment_row(transaction: dict[str, Any], cells: list[str]) -> bool:
+    amount = transaction.get("amount")
+    if not isinstance(amount, int) or amount not in (0, _parse_amount(cells[3] if len(cells) > 3 else "")):
+        return False
+    joined = " ".join(str(cell).strip() for cell in cells if str(cell).strip())
+    if "면제" not in joined:
+        return False
+    amounts = [_parse_amount(cell) for cell in cells]
+    usage_amount = _parse_amount(cells[3] if len(cells) > 3 else "")
+    return isinstance(usage_amount, int) and usage_amount > 0 and 0 in amounts and -usage_amount in amounts
+
+
+def _is_zero_principal_adjustment_row(header: list[str], cells: list[str]) -> bool:
+    normalized_header = {re.sub(r"\s+", "", value) for value in header}
+    if not {"이용일자", "이용카드", "이용가맹점", "이용금액", "원금", "구분"}.issubset(normalized_header):
+        return False
+    if len(cells) <= 5:
+        return False
+    usage_amount = _parse_amount(cells[3])
+    principal = _parse_amount(cells[5])
+    if usage_amount is None or usage_amount == 0 or principal != 0:
+        return False
+    if len(cells) > 7 and cells[7].strip() in {"취소", "부분취소", "부담경감", "소비쿠폰", "면제"}:
+        return True
+    if len(cells) > 8 and _parse_amount(cells[8]) is not None:
+        return True
+    return True
 
 
 def _amount_valid_or_exempt(row: dict[str, Any]) -> bool:
@@ -904,6 +935,8 @@ def _auto_match_candidates(
     matches: list[dict[str, Any]] = []
     candidates = source_totals + _aggregate_total_candidates(source_totals)
     for field, total_value in targets:
+        if total_value <= 0:
+            continue
         for candidate in candidates:
             if int(candidate.get("amount", 0)) == total_value:
                 matches.append(
@@ -922,6 +955,8 @@ def _auto_match_candidates(
             ("billing_amount_total_adjusted", billing_amount_total + adjustments),
         ]
         for field, total_value in adjusted_targets:
+            if total_value <= 0:
+                continue
             for candidate in candidates:
                 if int(candidate.get("amount", 0)) == total_value:
                     matches.append(
@@ -1020,7 +1055,41 @@ def _aggregate_total_candidates(source_totals: list[dict[str, Any]]) -> list[dic
         )
     aggregates.extend(_samsung_usage_total_aggregates(source_totals))
     aggregates.extend(_kb_monthly_payment_total_aggregates(source_totals))
+    aggregates.extend(_principal_grand_total_aggregates(source_totals))
     return aggregates
+
+
+def _principal_grand_total_aggregates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates = [
+        candidate
+        for candidate in source_totals
+        if _is_principal_grand_total_label(str(candidate.get("label", "")))
+        and isinstance(candidate.get("amount"), int)
+    ]
+    pages = sorted({int(candidate.get("page", 0) or 0) for candidate in candidates})
+    if len(candidates) < 2 or len(pages) < 2:
+        return []
+    label = "페이지별 총합계 원금 합산"
+    amount = sum(int(candidate["amount"]) for candidate in candidates)
+    return [
+        {
+            "id": _aggregate_total_id(label, amount, candidates),
+            "label": label,
+            "value_text": f"{amount:,}",
+            "amount": amount,
+            "chunk_id": "+".join(str(candidate.get("chunk_id", "")) for candidate in candidates),
+            "page": int(candidates[0].get("page", 0) or 0),
+            "pages": pages,
+            "needs_review": False,
+            "review_reason": "",
+            "components": candidates,
+        }
+    ]
+
+
+def _is_principal_grand_total_label(label: str) -> bool:
+    normalized = re.sub(r"\s+", "", label)
+    return normalized in {"총합계원금", "종합합계원금"}
 
 
 def _kb_monthly_payment_total_aggregates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:

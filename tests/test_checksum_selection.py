@@ -124,6 +124,49 @@ def main() -> int:
         assert multi_page.summary["checksum"]["matched_total"]["pages"] == [1, 2]
         assert multi_page.summary["checksum"]["matched_field"] == "amount_total"
 
+        zero_billing_total = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=300000,
+                billing_amount_total=0,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("연회비 합계 원금", 0, page_number=1, chunk_id="page_001"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=1,
+        )
+        assert zero_billing_total is not None
+        assert zero_billing_total.checksum_status != "auto_selected_total_matched"
+        assert zero_billing_total.summary["checksum"]["auto_match_candidates"] == []
+
+        principal_grand_total = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=300000,
+                billing_amount_total=0,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("총합계 원금", 100000, page_number=1, chunk_id="page_001"),
+                _vision_total("종합 합계 원금", 200000, page_number=2, chunk_id="page_002"),
+                _vision_total("연회비 합계 원금", 0, page_number=2, chunk_id="page_002"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=2,
+        )
+        assert principal_grand_total is not None
+        assert principal_grand_total.checksum_status == "auto_selected_total_matched"
+        assert principal_grand_total.summary["checksum"]["matched_total"]["label"] == "페이지별 총합계 원금 합산"
+        assert principal_grand_total.summary["checksum"]["matched_field"] == "amount_total"
+
         samsung_transactions_path = merged_dir / "samsung_transactions.jsonl"
         samsung_rows = [
             _transaction(

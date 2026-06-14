@@ -440,9 +440,10 @@ def _normalize_row(
     if repaired or shinhan_repaired or kb_repaired:
         review_reasons = _filter_repaired_hyundai_reasons(review_reasons)
 
-    if not transaction.get("date"):
+    is_fee_waiver_adjustment = _is_fee_waiver_adjustment_row(transaction, cells, extra_fields)
+    if not transaction.get("date") and not is_fee_waiver_adjustment:
         review_reasons.append("날짜 열을 확정하지 못했습니다.")
-    if not transaction.get("merchant"):
+    if not transaction.get("merchant") and not is_fee_waiver_adjustment:
         review_reasons.append("가맹점 열을 확정하지 못했습니다.")
     if transaction.get("amount") is None and not _amount_optional_transaction(transaction, cells):
         review_reasons.append("이용금액을 숫자로 확정하지 못했습니다.")
@@ -465,9 +466,6 @@ def _repair_shinhan_amount_rows(transaction: dict[str, Any], cells: list[str]) -
         return False
     amount = transaction.get("amount")
     source_text = cells[5].strip()
-    if amount == 0 and primary_amount != 0:
-        transaction["amount"] = primary_amount
-        return True
     if isinstance(amount, int) and abs(amount) > 100_000_000 and "/" in source_text:
         transaction["amount"] = primary_amount
         return True
@@ -770,6 +768,8 @@ def _filter_auto_resolved_reasons(
         if _is_shinhan_amount_shape(cells) and isinstance(transaction.get("amount"), int):
             if any(token in reason for token in ("col_4", "col_6", "col_8", "col_10", "amount ", "Amount split", "Multiple entries", "dup_")):
                 continue
+        if _is_fee_waiver_adjustment_cells(cells) and "열 매핑 확인 필요" in reason:
+            continue
         if _amount_optional_transaction(transaction, cells) and (
             "M 포인트 사용 행" in reason or "이용금액을 숫자로 확정하지 못했습니다" in reason
         ):
@@ -884,6 +884,38 @@ def _amount_optional_transaction(transaction: dict[str, Any], cells: list[str]) 
     if isinstance(billing_amount, int) and "usd" in " ".join(cells).lower():
         return True
     return False
+
+
+def _is_fee_waiver_adjustment_row(
+    transaction: dict[str, Any],
+    cells: list[str],
+    extra_fields: dict[str, Any],
+) -> bool:
+    if not _is_fee_waiver_adjustment_cells(cells):
+        return False
+    amount = transaction.get("amount")
+    if isinstance(amount, int) and amount not in (0, _parse_amount(cells[3])):
+        return False
+    principal = _parse_amount(extra_fields.get("원금", ""))
+    if principal is None and len(cells) > 5:
+        principal = _parse_amount(cells[5])
+    return principal in (None, 0)
+
+
+def _is_fee_waiver_adjustment_cells(cells: list[str]) -> bool:
+    if len(cells) <= 8:
+        return False
+    usage_amount = _parse_amount(cells[3])
+    principal = _parse_amount(cells[5])
+    discount = _parse_amount(cells[8])
+    joined = " ".join(str(cell).strip() for cell in cells if str(cell).strip())
+    return (
+        isinstance(usage_amount, int)
+        and usage_amount > 0
+        and principal == 0
+        and discount == -usage_amount
+        and "면제" in joined
+    )
 
 
 def _normalize_date(value: str) -> str:
