@@ -71,7 +71,7 @@ def _pair_report(
     ]
     source_total = _best_pair_total(source_candidates)
     amount_total = sum(_amount(row, "amount") for row in pair_rows)
-    billing_total = sum(_amount(row, "billing_amount") for row in pair_rows)
+    billing_total = sum(_amount(row, "billing_amount") for row in pair_rows if not _is_foreign_detail_row(row))
     raw_adjustment_totals = _raw_adjustment_totals(pair, raw_rows)
     explanation = _difference_explanation(
         source_total=source_total,
@@ -291,6 +291,11 @@ def _section_type(row: dict[str, Any]) -> str:
     if "_totals_" in chunk_id:
         return "total_detail"
     return "billing_detail"
+
+
+def _is_foreign_detail_row(row: dict[str, Any]) -> bool:
+    header = _joined(row.get("raw", {}).get("header", []))
+    return "국가" in header and "해외이용금액" in header
 
 
 def _page_pairs(rows: list[dict[str, Any]], source_totals: list[dict[str, Any]]) -> list[tuple[int, int]]:

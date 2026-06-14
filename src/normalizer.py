@@ -400,6 +400,8 @@ def _repair_hyundai_shifted_rows(
     repaired = _repair_hyundai_billing_amount_from_header(transaction, header, cells)
     if _repair_hyundai_combined_date_card_header(transaction, extra_fields, header, cells):
         return True
+    if _repair_hyundai_split_content_row(transaction, cells):
+        return True
     if _repair_hyundai_owner_card_row(transaction, extra_fields, cells):
         return True
     if _repair_hyundai_amount_shift_row(transaction, header, cells):
@@ -428,6 +430,28 @@ def _repair_hyundai_billing_amount_from_header(
         transaction["billing_amount"] = billing_amount
         return True
     return False
+
+
+def _repair_hyundai_split_content_row(transaction: dict[str, Any], cells: list[str]) -> bool:
+    if len(cells) < 7:
+        return False
+    card_label = cells[1].strip()
+    if not _looks_like_date_token(cells[0]) or not card_label.startswith("본인 "):
+        return False
+    if not any(token in card_label.lower() for token in ("purple", "zero", "퍼플")):
+        return False
+    amount = _parse_amount(cells[3])
+    billing_amount = _parse_amount(cells[-1])
+    if amount is None:
+        return False
+    transaction["date"] = _normalize_date(cells[0])
+    transaction["card_label"] = card_label
+    transaction["merchant"] = cells[2].strip()
+    transaction["amount"] = amount
+    if billing_amount is not None:
+        transaction["billing_amount"] = billing_amount
+    transaction["transaction_type"] = ""
+    return True
 
 
 def _repair_hyundai_combined_date_card_header(
@@ -793,10 +817,19 @@ def _review_sample(row: dict[str, Any]) -> dict[str, Any]:
 def _sum_amount(rows: list[dict[str, Any]], field: str) -> int:
     total = 0
     for row in rows:
+        if field == "billing_amount" and _is_foreign_detail_billing_row(row):
+            continue
         value = row.get("transaction", {}).get(field)
         if isinstance(value, int):
             total += value
     return total
+
+
+def _is_foreign_detail_billing_row(row: dict[str, Any]) -> bool:
+    raw = row.get("raw", {}) if isinstance(row.get("raw"), dict) else {}
+    header = [re.sub(r"\s+", "", str(value)) for value in raw.get("header", [])]
+    joined = "|".join(header)
+    return "국가" in header and "해외이용금액" in joined and "결제원금(원)" in joined
 
 
 def _header_key(header: list[str]) -> str:

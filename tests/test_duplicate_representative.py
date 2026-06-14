@@ -82,6 +82,7 @@ def main() -> int:
         _assert_installment_variant_duplicates_excluded(root / "installment_variant")
         _assert_hyundai_combined_header_row_repaired(root / "hyundai_combined_header")
         _assert_hyundai_billing_amount_repaired_from_header(root / "hyundai_billing_header")
+        _assert_hyundai_split_content_row_repaired(root / "hyundai_split_content")
 
     print("duplicate representative test passed")
     return 0
@@ -442,9 +443,17 @@ def _assert_hyundai_billing_amount_repaired_from_header(root: Path) -> None:
         "수수료(이자)",
     ]
     cells = ["01.17", "본인 ZERO 포인트형", "GSTHEFRESH춘천한숲시티점", "30,790", "", "1.0", "300", "28,790", "", ""]
+    foreign_header = ["이용일", "이용카드", "이용가맹점", "국가", "해외이용금액", "접수금액", "환율", "해외이용수수료", "결제원금(원)"]
+    foreign_cells = ["01.11", "the Purple(KAL)", "www.aliexpress.com", "영국", "USD 30.67", "USD 31.01", "1,478.10", "81", "45,835"]
     merge_output = build_row_outputs(
-        vision_results=[_vision_with_header("page_001_chunk_01", header, [cells], page_number=1)],
-        chunks=[_chunk("page_001_chunk_01", root / "chunk_01.png", 1, page_number=1)],
+        vision_results=[
+            _vision_with_header("page_001_chunk_01", header, [cells], page_number=1),
+            _vision_with_header("page_001_chunk_02", foreign_header, [foreign_cells], page_number=1),
+        ],
+        chunks=[
+            _chunk("page_001_chunk_01", root / "chunk_01.png", 1, page_number=1),
+            _chunk("page_001_chunk_02", root / "chunk_02.png", 2, page_number=1),
+        ],
         input_pdf=root / "sample.pdf",
         output_dir=output_dir,
         merged_dir=merged_dir,
@@ -456,6 +465,49 @@ def _assert_hyundai_billing_amount_repaired_from_header(root: Path) -> None:
             _mapping_group_for(
                 header,
                 ["date", "card_label", "merchant", "amount", "extra", "discount", "points", "extra", "extra", "extra"],
+            ),
+            _mapping_group_for(
+                foreign_header,
+                ["date", "card_label", "merchant", "extra", "extra", "extra", "extra", "extra", "billing_amount"],
+            ),
+        ],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping_output,
+        merged_dir=merged_dir,
+    )
+    assert normalization_output is not None
+    assert normalization_output.transaction_count == 2
+    assert normalization_output.amount_total == 30790
+    assert normalization_output.billing_amount_total == 28790
+    rows = _read_jsonl(normalization_output.transactions_path)
+    assert rows[0]["transaction"]["billing_amount"] == 28790
+    assert rows[1]["transaction"]["billing_amount"] == 45835
+
+
+def _assert_hyundai_split_content_row_repaired(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    header = ["이용일", "이용내용", "이용금액", "적립율", "적립포인트", "청구금액"]
+    cells = ["01.29", "본인 the Purple(KAL)", "AMAZON MKTPL*J500060 USD:58.98", "86,640", "0.1", "86", "86,640"]
+    merge_output = build_row_outputs(
+        vision_results=[_vision_with_header("page_002_chunk_01", header, [cells], page_number=2)],
+        chunks=[_chunk("page_002_chunk_01", root / "chunk_01.png", 1, page_number=2)],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[
+            _mapping_group_for(
+                header,
+                ["date", "card_label", "amount", "points", "billing_amount", "extra"],
             )
         ],
         option_labels={},
@@ -467,10 +519,10 @@ def _assert_hyundai_billing_amount_repaired_from_header(root: Path) -> None:
         merged_dir=merged_dir,
     )
     assert normalization_output is not None
-    assert normalization_output.amount_total == 30790
-    assert normalization_output.billing_amount_total == 28790
+    assert normalization_output.amount_total == 86640
+    assert normalization_output.billing_amount_total == 86640
     rows = _read_jsonl(normalization_output.transactions_path)
-    assert rows[0]["transaction"]["billing_amount"] == 28790
+    assert rows[0]["transaction"]["merchant"] == "AMAZON MKTPL*J500060 USD:58.98"
 
 
 def _vision_with_header(
