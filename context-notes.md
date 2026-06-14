@@ -349,3 +349,12 @@
 - 신한/삼성과 같은 page+gemma 경로로 `output/acceptance_kb_bzcard_13_gemma`를 새로 만들었다. timeout 200초/RPM 15 설정에서 13페이지 모두 API 호출 성공했고 error cache는 없었다.
 - KB는 기존 2단 보정(`이용카드|이용일|이용 가맹점|가맹점 소재지|이용금액|현지금액|이번달 결제금액|적립예정 포인트리`, 4자리 월일 날짜, 페이지별 이번달 결제금액 합산)이 page+gemma 출력에도 그대로 맞았다. 추가 코드 수정은 필요 없었다.
 - 최종 결과: `python main.py --input "견본/kb_bzcard_13.pdf" --output output/acceptance_kb_bzcard_13_gemma --extraction-mode page --force-vision`, `vision_ok=13`, `transaction_count=173`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `matched_total=KB 페이지별 이번달 결제금액 합산 28,301,920`, 자동화 수락률 100%.
+
+## 2026-06-15 현대카드_8 결제원금 기준 보정
+
+- 사용자 기준을 다시 확인했다. 현대카드에서 `billing_amount`는 결제원금이고, 원본 `총 합계`와 맞춰야 하는 기준은 `amount_total`이 아니라 `billing_amount_total`이다.
+- `src/reconciliation.py`의 섹션 검산 기준을 현대카드에 한해 `billing_amount_total`로 바꿨다. 일반 카드는 기존처럼 `amount_total`을 쓴다.
+- `src/review_builder.py`도 섹션 검산 표시에서 실제 기준 필드가 `billing_amount_total`이면 거래 결제원금을 보여주도록 맞췄다.
+- `src/validator.py`의 KB 페이지별 이번달 결제금액 합산 후보는 KB 라벨 신호가 있을 때만 만들도록 제한했다. 이 변경으로 현대카드 총합계가 KB 후보로 잘못 라벨링되는 문제를 제거했다.
+- `output/acceptance_hyundai_8_gemma` 캐시 dry-run 결과, pages 1-2, 3-4, 5-6은 결제원금 기준으로 원본 총합계와 일치한다. pages 7-8은 원본 4,015,699 대비 결제원금 3,998,599로 17,100 부족하다.
+- KB 후보 오염을 제거한 뒤 현대카드_8 page+gemma 전체 검산 상태는 `no_user_total_selected`다. 이전처럼 가짜 KB 합산 후보로 `auto_selected_total_matched`가 되지 않는다.

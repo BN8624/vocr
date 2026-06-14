@@ -836,13 +836,16 @@ def _section_reconciliation_summary(reconciliation: dict[str, Any] | None) -> st
         page_text = "-".join(str(page) for page in pages) if isinstance(pages, list) else str(pages)
         source_total = pair.get("source_total", {}) if isinstance(pair.get("source_total"), dict) else {}
         source_amount = source_total.get("amount", "")
+        basis_field = str(pair.get("basis_field") or "amount_total")
+        basis_amount = pair.get(basis_field, pair.get("amount_total", ""))
+        basis_label = "결제원금" if basis_field == "billing_amount_total" else "이용금액"
         difference = pair.get("difference", "")
         explanation = pair.get("explanation", {}) if isinstance(pair.get("explanation"), dict) else {}
         raw_summary = _raw_adjustment_summary(pair.get("raw_adjustment_totals", {}))
         rows.append(
             '<div class="reason-item">'
             f"<strong>{escape(page_text)}</strong>"
-            f"<span>원본 {escape(_format_amount(source_amount))} · 거래 {escape(_format_amount(pair.get('amount_total', '')))} · 차이 {escape(_format_amount(difference))} · {escape(str(explanation.get('status', '')))}{raw_summary}</span>"
+            f"<span>원본 {escape(_format_amount(source_amount))} · 거래 {escape(basis_label)} {escape(_format_amount(basis_amount))} · 차이 {escape(_format_amount(difference))} · {escape(str(explanation.get('status', '')))}{raw_summary}</span>"
             "</div>"
         )
     return (

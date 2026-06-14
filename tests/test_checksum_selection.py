@@ -258,6 +258,7 @@ def main() -> int:
         # 리볼빙 명세서: 원본 총합계(이월분 포함)가 결제원금 합보다 크면 이월분을 무시하고 일치 처리
         assert revolving.checksum_status == "auto_selected_total_matched"
         assert revolving.summary["checksum"]["matched_field"] == "billing_amount_total_revolving_carryover"
+        assert not str(revolving.summary["checksum"]["matched_total"]["label"]).startswith("KB ")
         assert revolving.summary["checksum"]["matched_total"]["amount"] == 300000
         assert revolving.summary["checksum"]["auto_match_candidates"][0]["carryover_total"] == 50000
 

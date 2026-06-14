@@ -86,3 +86,14 @@ Treat it as a Hyundai billing_amount extraction or omission issue.
 2. chunk 모드 100% 샘플 대비 page+gemma 비교 후 기본 모드 전환 판단.
 실행: python main.py --input "견본/<카드>.pdf" --output output/<dir> --extraction-mode page [--dry-run|--force-vision]
 ```
+
+## 2026-06-15 Latest Hyundai Basis Update
+
+```text
+현대카드_8 page+gemma 기준을 결제원금으로 보정했다.
+section_reconciliation은 현대카드에서 billing_amount_total을 기준으로 비교한다.
+캐시 dry-run 결과 pages 1-2, 3-4, 5-6은 원본 총합계와 결제원금 기준 일치한다.
+pages 7-8은 원본 4,015,699 대비 billing_amount_total 3,998,599로 17,100 부족하다.
+KB 전용 합산 후보 오염을 제거해서 현재 checksum_status는 no_user_total_selected다.
+다음 작업은 pages 7-8의 17,100 부족을 원본 이미지 또는 raw cells 증거로 확정하는 것이다.
+```

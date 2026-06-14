@@ -73,9 +73,11 @@ def _pair_report(
     amount_total = sum(_amount(row, "amount") for row in pair_rows)
     billing_total = sum(_amount(row, "billing_amount") for row in pair_rows if not _is_foreign_detail_row(row))
     raw_adjustment_totals = _raw_adjustment_totals(pair, raw_rows)
+    basis_field = _reconciliation_basis_field(pair_rows)
+    basis_total = billing_total if basis_field == "billing_amount_total" else amount_total
     explanation = _difference_explanation(
         source_total=source_total,
-        amount_total=amount_total,
+        basis_total=basis_total,
         section_totals=section_totals,
         raw_adjustment_totals=raw_adjustment_totals,
     )
@@ -85,7 +87,8 @@ def _pair_report(
         "source_total": source_total,
         "amount_total": amount_total,
         "billing_amount_total": billing_total,
-        "difference": None if source_total is None else amount_total - int(source_total.get("amount", 0)),
+        "basis_field": basis_field,
+        "difference": None if source_total is None else basis_total - int(source_total.get("amount", 0)),
         "section_totals": dict(sorted(section_totals.items())),
         "section_samples": dict(samples),
         "raw_adjustment_totals": raw_adjustment_totals,
@@ -96,15 +99,15 @@ def _pair_report(
 
 def _difference_explanation(
     source_total: dict[str, Any] | None,
-    amount_total: int,
+    basis_total: int,
     section_totals: dict[str, dict[str, Any]],
     raw_adjustment_totals: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
     if source_total is None:
         return {"status": "no_pair_total", "message": "이 페이지 묶음의 원본 총합계 후보가 없습니다."}
-    difference = amount_total - int(source_total.get("amount", 0))
+    difference = basis_total - int(source_total.get("amount", 0))
     if difference == 0:
-        return {"status": "matched", "message": "거래 이용금액 합계가 원본 총합계와 일치합니다."}
+        return {"status": "matched", "message": "거래 기준 합계가 원본 총합계와 일치합니다."}
 
     candidates = []
     needed_adjustment = -difference
@@ -291,6 +294,12 @@ def _section_type(row: dict[str, Any]) -> str:
     if "_totals_" in chunk_id:
         return "total_detail"
     return "billing_detail"
+
+
+def _reconciliation_basis_field(rows: list[dict[str, Any]]) -> str:
+    if _issuer_hint(rows) == "hyundai":
+        return "billing_amount_total"
+    return "amount_total"
 
 
 def _is_foreign_detail_row(row: dict[str, Any]) -> bool:

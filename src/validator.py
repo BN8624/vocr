@@ -1093,6 +1093,8 @@ def _is_principal_grand_total_label(label: str) -> bool:
 
 
 def _kb_monthly_payment_total_aggregates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not _has_kb_monthly_payment_total(source_totals):
+        return []
     by_page: dict[int, dict[str, Any]] = {}
     for candidate in source_totals:
         label = re.sub(r"\s+", "", str(candidate.get("label", ""))).lower()
@@ -1127,6 +1129,14 @@ def _kb_monthly_payment_total_aggregates(source_totals: list[dict[str, Any]]) ->
             "components": candidates,
         }
     ]
+
+
+def _has_kb_monthly_payment_total(source_totals: list[dict[str, Any]]) -> bool:
+    for candidate in source_totals:
+        label = re.sub(r"\s+", "", str(candidate.get("label", ""))).lower()
+        if "이번달결제금액" in label or "포인트리" in label:
+            return True
+    return False
 
 
 def _kb_total_candidate_rank(candidate: dict[str, Any]) -> int:

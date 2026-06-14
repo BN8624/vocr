@@ -21,7 +21,7 @@ def main() -> int:
         transactions_path = merged_dir / "transactions.jsonl"
         rows_merged_path = merged_dir / "rows_merged.jsonl"
         rows = [
-            _row(page=1, amount=1000, merchant="store"),
+            _row(page=1, amount=1200, merchant="store", billing_amount=1000),
             _row(page=2, amount=0, merchant="foreign detail", header=["이용일", "국가", "해외이용금액", "결제원금(원)"], billing_amount=1000),
             _row(page=2, amount=0, merchant="M포인트", header=["이용일", "종류", "이용포인트/캐시백/마일리지"]),
         ]
@@ -31,13 +31,13 @@ def main() -> int:
             _raw_row(page=1, cells=["01.01", "본인", "M포인트 사용", "-1,000"]),
         ])
         summary_path = merged_dir / "normalization_summary.json"
-        summary_path.write_text(json.dumps({"amount_total": 1000, "billing_amount_total": 1000}, ensure_ascii=False), encoding="utf-8")
+        summary_path.write_text(json.dumps({"amount_total": 1200, "billing_amount_total": 1000}, ensure_ascii=False), encoding="utf-8")
         normalization = NormalizationOutput(
             transactions_path=transactions_path,
             summary_path=summary_path,
             transaction_count=len(rows),
             review_count=0,
-            amount_total=1000,
+            amount_total=1200,
             billing_amount_total=1000,
             summary={},
         )
@@ -58,7 +58,11 @@ def main() -> int:
         assert report["pair_count"] == 1
         pair = report["pairs"][0]
         assert pair["pages"] == [1, 2]
-        assert pair["section_totals"]["billing_detail"]["amount_total"] == 1000
+        assert pair["basis_field"] == "billing_amount_total"
+        assert pair["amount_total"] == 1200
+        assert pair["billing_amount_total"] == 1000
+        assert pair["difference"] == 0
+        assert pair["section_totals"]["billing_detail"]["amount_total"] == 1200
         assert pair["section_totals"]["foreign_detail"]["billing_amount_total"] == 1000
         assert pair["raw_adjustment_totals"]["raw_benefit_dated"]["row_count"] == 2
         assert pair["raw_adjustment_totals"]["raw_benefit_dated"]["unique_row_count"] == 1

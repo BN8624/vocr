@@ -238,3 +238,12 @@
 - [x] KB `kb_bzcard_13` gemma page 모드 신규 추출: 13호출/0에러, 173행, 정규화 리뷰 0, 검증 이슈 0, `matched_total=KB 페이지별 이번달 결제금액 합산 28,301,920`, 자동화 수락률 100%.
 - [ ] 현대 샘플 gemma page 모드 범용성 검증(1회 API 추출 후 dry-run 비교).
 - [ ] 기존 chunk 모드 100% 샘플 대비 page+gemma 정확도 비교 후 기본 모드 전환 판단.
+
+## 2026-06-15 현대카드_8 결제원금 기준 보정
+
+- [x] 현대카드 섹션 검산 기준을 `billing_amount_total`로 전환.
+- [x] review.html 섹션 검산 표시를 실제 기준 필드에 맞게 수정.
+- [x] KB 전용 페이지별 결제금액 합산 후보가 현대 총합계에 붙지 않도록 제한.
+- [x] 관련 회귀 테스트 추가 및 실행.
+- [x] `output/acceptance_hyundai_8_gemma` 캐시 dry-run으로 pages 1-2, 3-4, 5-6 결제원금 기준 일치 확인.
+- [ ] pages 7-8 결제원금 17,100 부족 원인을 원본 이미지나 raw cells 기준으로 확정.
