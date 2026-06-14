@@ -319,3 +319,12 @@
 - `src/page_extractor.py._call_gemini_text`에 gemma 분기 추가(thinkingLevel MINIMAL + maxOutputTokens 32768 캡). `--model` CLI와 `extraction.page_model` config 추가. page 모드 기본 모델을 gemma-4-31b-it로, chunk 모드는 vision.model(flash-lite) 유지.
 - 결과: 신한_11 page 모드 gemma 추론 off는 일시불 전기 행 금액을 `원금`에 정확히 배치(열밀림 해소). 11호출/0에러, 510행, 정규화 리뷰 1, 검증 6(전부 양성 false-positive: 공과금 가맹점명+관리번호 5 + 기본연회비 1). amount_total 31.2M(flash-lite 29.9M, chunk 32.6M에 근접). 대가는 31B라 flash-lite보다 느림.
 - 남은 2단: 공과금 가맹점 false-positive(03정기·06수신로 등)를 신한 숫자오염 예외에 추가. 캐시 dry-run으로 처리.
+
+## 2026-06-14 sop010 충실 이식 정정(헤더 강제 + verbatim 프롬프트) — gemma 전환 직전 결정
+
+- (시간순으로는 위 gemma 항목 직전 결정이다.) sop010.html을 줄 단위로 다시 분석해 `sop010_dissection.md`로 정리했고, 가정과 다른 두 가지를 발견했다.
+  1. HTML 헤더 힌트는 소프트가 아니라 강제다(callExtract: 같은 파일 2쪽~는 1쪽 헤더를 반드시 사용). `headersCompatible`(Jaccard 0.75)는 파일 간 검사용이다.
+  2. HTML은 canonical amount를 만들지 않고 raw 컬럼만 보존한다. 검토 단계에서 금액/원금/이용금액을 모두 amount 후보(amountAll)로 동등 취급한다.
+- 따라서 내가 임시로 넣었던 소프트 헤더 힌트와 각색 프롬프트, __total 확장을 충실 이식으로 되돌렸다. 헤더는 강제(파일 내 1쪽 헤더 통일)로 바꿔야 신한 다단 헤더(`할부`+`기간/회차` 등)가 페이지마다 10/11열로 쪼개지는 문제가 사라진다. 사용자도 "강제로 해야 이단헤더 문제가 안 생긴다"고 확정했다.
+- 프롬프트는 `EXTRACT_PROMPT` verbatim으로 복원했고, 검산용 집계행만 verbatim 아래 `__total` 블록으로 분리(2단 확장)했다. 파서는 parseRawText 충실(__skip + AGGREGATE_RE, 강제 헤더, 헤더 순서 cells 정렬).
+- 충실 이식 후 flash-lite 베이스라인은 검증 2(헤더 통일)였으나 일시불/공과금 행 금액이 `원금`이 아닌 `금액`으로 밀리는 열밀림이 남았고, 이는 프롬프트로는 못 잡아 모델 교체(gemma)로 이어졌다. 상세는 위 gemma 항목.

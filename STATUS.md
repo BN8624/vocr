@@ -30,6 +30,7 @@ NEEDS_VERIFICATION
 | Selective 2-pass Vision | PLANNED | `newplan.md` P1 | Repairs risky chunks only | Not implemented |
 | `review.html` exception/debug role | PARTIAL | `src/review_builder.py`, `static/review.*` | Shows only judgment-required steps in current UI | Needs automation metrics first screen and hard failure prioritization |
 | `review.py` simple entrypoint | DONE | `review.py`, `tests/test_review_entrypoint.py` | Simplifies single-PDF operation | Must remain secondary to acceptance runner |
+| Page-mode extraction (sop010 port) | PARTIAL | `src/page_extractor.py`, `prompts/page_extract_jsonl.md`, `sop010_dissection.md`, `tests/test_page_extractor.py` | 1단 범용 거름망: 페이지 1장=1 호출, 헤더명 키 JSON, 강제 헤더, 적응형 전처리, gemma-4-31b-it(추론 off) | 2단 튜닝(공과금 false-positive, 검산 실질화)과 타 카드사 범용성 검증 남음 |
 
 ## Current P0 Focus
 
@@ -52,4 +53,33 @@ Pages 1-2 are short by 71,240.
 Pages 7-8 are short by 16,500.
 Do not solve this as a manual total selection UI issue.
 Treat it as a Hyundai billing_amount extraction or omission issue.
+```
+
+## 2026-06-14 Latest (supersedes above) — page 모드 + gemma 전환
+
+```text
+[현대카드_8 검산 — RESOLVED]
+- 위 87,740 차이(1-2쪽 71,240 + 7-8쪽 16,500)는 전월 리볼빙 이월분으로 확정됐다.
+- 거래 결제원금 합은 정확하고 차이는 거래가 아닌 이월분이다.
+- src/validator.py에 리볼빙 검산 규칙 추가: 이월약정 라벨 + 결제원금<=총합계이면
+  잉여(이월분)를 무시하고 billing_amount_total_revolving_carryover로 자동 일치.
+- dry-run 중복 과추출 버그도 수정(load_cached_vision_results에 _with_required_defaults).
+- 현대카드_8 현재: 299행, auto_selected_total_matched(carryover 87,740).
+
+[현재 작업 = page 모드 1단(sop010 충실 이식) + gemma]
+- src/page_extractor.py: 페이지 1장=1 호출, 헤더명 키 JSON Lines, 강제 헤더(파일 내 1쪽
+  헤더 통일), 적응형 전처리, 동시성2 + RPM 슬라이딩 큐, 캐시 page_NNN.
+- 프롬프트는 sop010 EXTRACT_PROMPT verbatim + __total(검산용) 2단 확장. 분석은 sop010_dissection.md.
+- page 모드 기본 모델 = gemma-4-31b-it(추론 off: thinkingLevel MINIMAL, 토큰 32768 캡).
+  chunk 모드는 gemini-3.1-flash-lite 유지. config: extraction.page_model, CLI: --model.
+- 신한_11 page+gemma: 11호출/0에러, 510행, 정규화 리뷰 1, 검증 6(전부 양성 false-positive:
+  공과금 가맹점명 5 + 기본연회비 1). flash-lite의 일시불 열밀림(금액→원금)이 gemma로 해소됨.
+
+[다음 시작점 — 전부 캐시 dry-run, API 불필요]
+1. 공과금 가맹점 false-positive 6건: 03정기/06수신로 등 관리번호 결합 가맹점을
+   src/validator.py 신한 숫자오염 예외에 추가.
+2. 검산 실질화: amount_total≈31.2M이 원본 총합계와 진짜 reconcile되는지(degenerate 매치 여부) 확인.
+3. 현대/삼성/KB도 gemma page 모드로 1회씩 추출해 범용성 검증.
+4. chunk 모드 100% 샘플 대비 page+gemma 비교 후 기본 모드 전환 판단.
+실행: python main.py --input "견본/<카드>.pdf" --output output/<dir> --extraction-mode page [--dry-run|--force-vision]
 ```

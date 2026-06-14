@@ -216,8 +216,22 @@
 사용자 방향: HTML은 일시불/공과금 컬럼 문제를 강제 보정 없이 프롬프트로 풀었다. 1단계 완료를 "sop010 충실 재현"으로 정의하고, 그 결과물 위에서만 튜닝한다. 강제 코드 보정 금지, 프롬프트 우선.
 
 - [x] 내가 추가했던 normalizer 강제 보정(`_repair_shinhan_amount_rows` 일시불 금액 fallback) revert.
-- [ ] 프롬프트를 sop010 `EXTRACT_PROMPT` 충실 이식(헤더명 키, 빈 칸 키 생략, __skip, 집계행 제외). 검산용 totals는 `__total` 최소 확장.
-- [ ] 파서를 sop010 `parseRawText` 충실 이식(AGGREGATE_RE 클라이언트 백업, 키-합집합 헤더 추론).
-- [ ] 신한_11 재추출로 1단 베이스라인 확정(프롬프트 변경이라 API 1회 허용).
-- [ ] 베이스라인 결과물 위에서 2단 튜닝(프롬프트 우선, 강제 보정 지양).
-- [ ] 기존 100% 샘플 page 모드 회귀 후 기본 모드 전환 판단.
+- [x] 프롬프트를 sop010 `EXTRACT_PROMPT` 충실 이식(verbatim). 검산용 totals는 `__total` 블록을 verbatim 아래 2단 확장으로 분리.
+- [x] 파서를 sop010 `parseRawText` 충실 이식(AGGREGATE_RE 백업, 키-합집합 헤더 추론, 강제 헤더).
+- [x] 신한_11 재추출로 1단 베이스라인 확정.
+- [x] 헤더는 소프트→강제로 정정(다단 헤더가 페이지마다 쪼개지는 문제 제거, 전 페이지 헤더 통일).
+
+## 2026-06-14 page 모드 모델 gemma-4-31b-it 전환 (현재 상태)
+
+- [x] flash-lite 한계로 일시불/공과금 sparse 행 금액이 `원금`이 아닌 `금액` 열로 밀리는 열밀림 확인(원본 이미지 대조).
+- [x] gemma-4-31b-it 호출 규약을 공식문서/Google 포럼으로 확인(추론 off = `thinkingConfig.thinkingLevel=MINIMAL`, 토큰 32768 캡).
+- [x] `_call_gemini_text` gemma 분기 + `--model` CLI + `extraction.page_model` config. page 모드만 gemma, chunk는 flash-lite.
+- [x] 신한_11 gemma page 모드: 일시불 금액이 `원금`에 정확 배치(열밀림 해소). 검증 31→6(전부 양성 false-positive).
+
+### 다음 에이전트(코덱스) 시작점 — 전부 캐시 dry-run, API 불필요
+
+- 실행: `python main.py --input "견본/신한카드_11.pdf" --output output/acceptance_shinhan_11_gemma --extraction-mode page --dry-run` (gemma 캐시 재사용). 신규 추출만 `--force-vision`(API).
+- [ ] 공과금 가맹점 false-positive 6건 정리: `03정기1702487618`·`06수신로3473966375` 등 관리번호 결합 가맹점을 `src/validator.py`의 신한 숫자오염 예외에 추가. (`12전기...` 동일 패턴 기존 처리 있음.)
+- [ ] 검산 실질화: gemma `amount_total≈31.2M`이 원본 총합계(신한 페이지별 총합계 합산)와 진짜 reconcile되는지, 현재 `auto_selected_total_matched`가 degenerate(billing 0=0) 매치인지 확인.
+- [ ] 다른 샘플(현대/삼성/KB) gemma page 모드 범용성 검증(각 1회 API 추출 후 dry-run 비교).
+- [ ] 기존 chunk 모드 100% 샘플 대비 page+gemma 정확도 비교 후 기본 모드 전환 판단.
