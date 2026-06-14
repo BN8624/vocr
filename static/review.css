@@ -32,10 +32,10 @@ main {
   position: relative;
   width: min(1080px, calc(100% - 32px));
   margin: 0 auto;
-  padding: 28px 0 36px;
+  padding: 18px 0 28px;
 }
 .page-title {
-  margin-bottom: 14px;
+  margin-bottom: 8px;
 }
 .eyebrow {
   margin: 0 0 6px;
@@ -67,15 +67,15 @@ h4 {
   line-height: 1.45;
 }
 .source {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   overflow-wrap: anywhere;
   font-size: 13px;
 }
 .summary {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-  margin: 0 0 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
 }
 .stat-card, .panel, .issue-card, .judgment-card {
   border: 1px solid var(--line);
@@ -84,24 +84,24 @@ h4 {
   box-shadow: inset 0 0 20px rgba(0, 60, 30, 0.04);
 }
 .stat-card {
+  display: inline-flex;
   min-width: 0;
-  padding: 12px 14px;
-}
-.stat-card strong, .stat-card span {
-  display: block;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 8px;
 }
 .stat-card strong {
-  margin-bottom: 5px;
+  margin: 0;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 .stat-card span {
   overflow-wrap: anywhere;
-  font-size: 17px;
+  font-size: 12px;
   font-weight: 700;
 }
 .panel {
-  margin-top: 12px;
+  margin-top: 8px;
   padding: 14px;
 }
 .empty-state {
@@ -227,11 +227,13 @@ button:hover {
 @media (max-width: 640px) {
   main {
     width: 100%;
-    padding: 16px 10px 28px;
+    padding: 12px 10px 24px;
   }
   h1 { font-size: 22px; }
-  .summary, .mapping-columns, .checksum-candidates, .file-links {
+  .mapping-columns, .checksum-candidates, .file-links {
     grid-template-columns: 1fr;
   }
-  .stat-card span { font-size: 15px; }
+  .summary {
+    gap: 5px;
+  }
 }
