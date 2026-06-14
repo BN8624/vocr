@@ -192,7 +192,13 @@ def _extract_one_chunk(
             except Exception as exc:
                 last_error = exc
                 if attempt < max_retries:
-                    time.sleep(float(config.get("request_delay_seconds", 0)))
+                    message = str(exc)
+                    if "429" in message:
+                        delay = 30.0
+                    else:
+                        delay = float(config.get("request_delay_seconds", 0)) * (2 ** (attempt - 1))
+                    if delay > 0:
+                        time.sleep(delay)
         if response is None:
             raise RuntimeError(f"Gemini extraction failed after {max_retries} attempt(s): {last_error}")
 

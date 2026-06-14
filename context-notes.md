@@ -205,3 +205,14 @@
 - 보조 청크와 일반 청크의 y 범위를 함께 보존해서 실제로 겹치는 원본 영역이면 중복 후보로 판단한다.
 - 현대카드 하이패스 행은 `0004건` 같은 건수 셀이 금액 후보로 섞일 수 있다. `하이패스` 카드 라벨과 `0000건` 패턴이 같이 있으면 뒤쪽의 실제 금액을 `amount`와 `billing_amount`로 복구한다.
 - 현대카드_8 재생성은 기존 캐시를 사용해 `llm_calls=0`, `validation_issue_row_count=0`, `hard_review_count=0`, `blocked_count=0`까지 확인했다. 다만 전체 체크섬은 현대카드 원본 총합계 기준이 아직 자동 확정되지 않아 `no_user_total_selected`를 유지한다.
+
+## 2026-06-14 KB 사업자카드 신규 샘플 1차 분석
+
+- `kb_bzcard_13.pdf`는 13페이지이고 기존 파이프라인 1차 실행 결과 `vision_ok=64`, `vision_errors=1`, `transaction_count=186`, `normalization_review_count=186`, `validation_issue_row_count=186`이었다.
+- Vision 오류 1건은 `page_002_chunk_02`의 Gemini 503이다. 캐시 기반 재실행 때 해당 청크만 재시도 대상이다.
+- 주 거래 표 헤더는 `이용카드, 이용일, 이용 가맹점, 가맹점 소재지, 이용금액, 현지금액, 이번달 결제금액, 적립예정 포인트리` 구조다.
+- 기존 자동 보정은 현대카드 포인트형 규칙과 가장 가깝게 잡혔지만, `가맹점 소재지`를 두 번째 merchant 후보로 잡고 `이번달 결제금액` review를 남겨 모든 행이 review가 됐다.
+- KB 날짜는 `1211`처럼 4자리 월일로 들어온다. 현재 날짜 검증은 구분자 없는 월일을 인정하지 않아 전 행 `date_not_date_like`가 발생했다.
+- `sop010.html`은 PDF를 페이지 이미지로 렌더링하고 1페이지를 먼저 호출해 헤더를 확정한 뒤 이후 페이지에 knownHeader를 넘긴다. RPM은 한도보다 2 낮은 슬롯으로 제한하고 429는 30초 대기 후 재시도한다.
+- KB 보정 후 최종 `output/acceptance_kb_bzcard_13` 결과는 `llm_calls=0`, `vision_ok=65`, `vision_errors=0`, `transaction_count=173`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, `matched_total=KB 페이지별 이번달 결제금액 합산 28,301,920`, `difference=0`이다.
+- 현대카드_8은 거래 추출과 행 검증 기준으로는 종료 상태다. 다만 샘플 완전 종료 선언은 원본 총합계 기준이 자동 확정되거나 사용자가 총합계 기준을 선택해서 `checksum_status`가 matched 상태가 되어야 한다.

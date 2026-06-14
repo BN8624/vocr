@@ -177,6 +177,7 @@ def _validate_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]
             and len(cells) != expected_count
             and not _is_hyundai_repaired_shape(cells)
             and not _is_samsung_repaired_shape(cells)
+            and not _is_kb_short_billing_shape(header, cells)
         ):
             issues[key].append(
                 _issue(
@@ -714,6 +715,9 @@ def _is_date_like(value: str) -> bool:
     match = re.fullmatch(r"(\d{1,2})[./-](\d{1,2})", text)
     if match:
         return _valid_date_parts("2000", *match.groups())
+    match = re.fullmatch(r"(\d{2})(\d{2})", text)
+    if match:
+        return _valid_date_parts("2000", *match.groups())
     match = re.fullmatch(r"(\d{2})[./-](\d{1,2})[./-](\d{1,2})", text)
     if match:
         return _valid_date_parts(str(2000 + int(match.group(1))), match.group(2), match.group(3))
@@ -774,6 +778,19 @@ def _is_samsung_repaired_shape(cells: list[str]) -> bool:
     if not has_standard_amounts and not has_split_card_amounts:
         return False
     return bool(cells[1].strip())
+
+
+def _is_kb_short_billing_shape(header: list[str], cells: list[str]) -> bool:
+    normalized_header = {re.sub(r"\s+", "", value) for value in header}
+    if not {"이용카드", "이용일", "이용가맹점", "이용금액", "현지금액", "이번달결제금액"}.issubset(normalized_header):
+        return False
+    if len(cells) != 6:
+        return False
+    return bool(
+        re.fullmatch(r"\d{4}", cells[1].strip())
+        and _parse_amount(cells[4]) is not None
+        and _parse_amount(cells[5]) is not None
+    )
 
 
 def _is_benefit_only_row(transaction: dict[str, Any], cells: list[str]) -> bool:
@@ -975,7 +992,58 @@ def _aggregate_total_candidates(source_totals: list[dict[str, Any]]) -> list[dic
             }
         )
     aggregates.extend(_samsung_usage_total_aggregates(source_totals))
+    aggregates.extend(_kb_monthly_payment_total_aggregates(source_totals))
     return aggregates
+
+
+def _kb_monthly_payment_total_aggregates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_page: dict[int, dict[str, Any]] = {}
+    for candidate in source_totals:
+        label = re.sub(r"\s+", "", str(candidate.get("label", ""))).lower()
+        amount = candidate.get("amount")
+        page = int(candidate.get("page", 0) or 0)
+        if not page or not isinstance(amount, int):
+            continue
+        if "포인트리" in label:
+            continue
+        if not any(token in label for token in ("이번달결제금액", "소계", "합계")):
+            continue
+        current = by_page.get(page)
+        if current is None or _kb_total_candidate_rank(candidate) > _kb_total_candidate_rank(current):
+            by_page[page] = candidate
+
+    candidates = [by_page[page] for page in sorted(by_page)]
+    if len(candidates) < 2:
+        return []
+    amount = sum(int(candidate["amount"]) for candidate in candidates)
+    label = "KB 페이지별 이번달 결제금액 합산"
+    return [
+        {
+            "id": _aggregate_total_id(label, amount, candidates),
+            "label": label,
+            "value_text": f"{amount:,}",
+            "amount": amount,
+            "chunk_id": "+".join(str(candidate.get("chunk_id", "")) for candidate in candidates),
+            "page": int(candidates[0].get("page", 0) or 0),
+            "pages": [int(candidate.get("page", 0) or 0) for candidate in candidates],
+            "needs_review": False,
+            "review_reason": "",
+            "components": candidates,
+        }
+    ]
+
+
+def _kb_total_candidate_rank(candidate: dict[str, Any]) -> int:
+    label = re.sub(r"\s+", "", str(candidate.get("label", ""))).lower()
+    chunk_id = str(candidate.get("chunk_id", ""))
+    rank = 0
+    if "이번달결제금액" in label:
+        rank += 4
+    if "totals" in chunk_id:
+        rank += 2
+    if "소계" in label:
+        rank += 1
+    return rank
 
 
 def _samsung_usage_total_aggregates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1101,6 +1169,14 @@ def _auto_selected_match(auto_matches: list[dict[str, Any]]) -> dict[str, Any] |
     if int(best.get("score", 0)) < 80:
         return None
     if len(auto_matches) == 1:
+        return best
+    candidate_id = str(best.get("candidate", {}).get("id", "")) if isinstance(best.get("candidate"), dict) else ""
+    if candidate_id and all(
+        isinstance(match.get("candidate"), dict)
+        and str(match.get("candidate", {}).get("id", "")) == candidate_id
+        and int(match.get("difference", 1)) == 0
+        for match in auto_matches
+    ):
         return best
     second = auto_matches[1]
     if int(best.get("score", 0)) - int(second.get("score", 0)) >= 30:

@@ -279,6 +279,8 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
 
     _repair_shifted_card_statement_columns(columns)
     _repair_hyundai_point_statement_columns(columns)
+    _repair_kb_bizcard_statement_columns(columns)
+    _repair_kb_bizcard_shifted_columns(columns)
     _repair_installment_statement_columns(columns)
     _repair_samsung_billing_statement_columns(columns)
     _mark_review_columns(columns)
@@ -442,6 +444,51 @@ def _repair_hyundai_point_statement_columns(columns: list[dict[str, Any]]) -> No
             _set_column_role(columns[index], "extra", "medium", "포인트 적립률은 검산 핵심 금액에서 제외합니다.")
         elif "적립포인트" in header or "적립예정" in header:
             _set_column_role(columns[index], "points", "medium", "적립 포인트는 이용금액과 분리합니다.")
+
+
+def _repair_kb_bizcard_statement_columns(columns: list[dict[str, Any]]) -> None:
+    headers = [_norm(str(column.get("header", ""))) for column in columns]
+    joined = "|".join(headers)
+    if "이번달결제금액" not in joined or not any("포인트리" in header for header in headers):
+        return
+    if not any("가맹점소재지" in header for header in headers):
+        return
+
+    for index, header in enumerate(headers):
+        if header == "이용카드":
+            _set_column_role(columns[index], "card_label", "high", "KB 사업자카드 표의 카드번호 열로 보정합니다.")
+        elif header == "이용일":
+            _set_column_role(columns[index], "date", "high", "KB 사업자카드 표의 이용일 열로 보정합니다.")
+        elif header in {"이용가맹점", "가맹점명"}:
+            _set_column_role(columns[index], "merchant", "high", "KB 사업자카드 표의 가맹점 열로 보정합니다.")
+        elif "가맹점소재지" in header:
+            _set_column_role(columns[index], "extra", "medium", "가맹점 소재지는 거래처가 아닌 보조 원본 필드로 남깁니다.")
+        elif header == "이용금액":
+            _set_column_role(columns[index], "amount", "high", "KB 사업자카드 표의 이용금액 열로 보정합니다.")
+        elif header == "현지금액":
+            _set_column_role(columns[index], "foreign_amount", "medium", "현지금액은 해외 보조 금액으로 분리합니다.")
+        elif header == "이번달결제금액":
+            _set_column_role(columns[index], "billing_amount", "high", "KB 사업자카드 표의 이번달 결제금액 열로 보정합니다.")
+        elif "포인트리" in header:
+            _set_column_role(columns[index], "points", "medium", "적립예정 포인트리는 거래 이용금액과 분리합니다.")
+
+
+def _repair_kb_bizcard_shifted_columns(columns: list[dict[str, Any]]) -> None:
+    headers = [_norm(str(column.get("header", ""))) for column in columns]
+    if headers != ["이용일", "이용시간", "가맹점명", "가맹점주소", "이용금액", "결제금액", "할부"]:
+        return
+    roles = ["card_label", "date", "merchant", "extra", "amount", "billing_amount", "extra"]
+    reasons = [
+        "KB 사업자카드 표에서 첫 열이 카드번호로 밀려 읽힌 행을 보정합니다.",
+        "KB 사업자카드 표에서 두 번째 열의 4자리 월일을 이용일로 보정합니다.",
+        "KB 사업자카드 표의 가맹점 열로 보정합니다.",
+        "가맹점 주소는 보조 원본 필드로 남깁니다.",
+        "KB 사업자카드 표의 이용금액 열로 보정합니다.",
+        "KB 사업자카드 표의 결제금액 열로 보정합니다.",
+        "밀림 헤더의 마지막 열은 거래 핵심 금액에서 제외합니다.",
+    ]
+    for index, role in enumerate(roles):
+        _set_column_role(columns[index], role, "high" if role in CORE_FIELDS else "medium", reasons[index])
 
 
 def _repair_samsung_billing_statement_columns(columns: list[dict[str, Any]]) -> None:

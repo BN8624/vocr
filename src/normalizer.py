@@ -97,6 +97,10 @@ def _row_exclusion_reason(row: dict[str, Any]) -> str:
     merge = row.get("merge", {})
     if str(merge.get("decision", "keep")) == "duplicate_excluded":
         return "duplicate_excluded"
+    if _is_kb_card_summary_row(row):
+        return "kb_card_summary"
+    if _is_kb_point_expiry_row(row):
+        return "kb_point_expiry"
     if _is_benefit_usage_row(row):
         return "benefit_usage"
     if _is_dateless_benefit_adjustment(row):
@@ -106,6 +110,22 @@ def _row_exclusion_reason(row: dict[str, Any]) -> str:
     if _has_misaligned_amount_review(row):
         return "misaligned_amount"
     return ""
+
+
+def _is_kb_card_summary_row(row: dict[str, Any]) -> bool:
+    header = [re.sub(r"\s+", "", str(value)) for value in row.get("raw", {}).get("header", [])]
+    if not {"이용자", "이용카드", "카드상품명", "이번달결제금액"}.issubset(set(header)):
+        return False
+    cells = [str(value).strip() for value in row.get("raw", {}).get("cells", [])]
+    if len(cells) < 4:
+        return False
+    return bool(_parse_amount(cells[3]))
+
+
+def _is_kb_point_expiry_row(row: dict[str, Any]) -> bool:
+    header = [re.sub(r"\s+", "", str(value)) for value in row.get("raw", {}).get("header", [])]
+    cells = [str(value).strip() for value in row.get("raw", {}).get("cells", [])]
+    return bool(header and "소멸예정일" in header[0] and cells and "포인트리" in cells[0])
 
 
 def _has_invalid_date_cell(row: dict[str, Any]) -> bool:
@@ -414,9 +434,10 @@ def _normalize_row(
         transaction[field] = amount
 
     repaired = _repair_hyundai_shifted_rows(transaction, extra_fields, header, cells)
+    kb_repaired = _repair_kb_short_billing_row(transaction, header, cells)
     shinhan_repaired = _repair_shinhan_amount_rows(transaction, cells)
     review_reasons = _filter_auto_resolved_reasons(review_reasons, transaction, cells)
-    if repaired or shinhan_repaired:
+    if repaired or shinhan_repaired or kb_repaired:
         review_reasons = _filter_repaired_hyundai_reasons(review_reasons)
 
     if not transaction.get("date"):
@@ -451,6 +472,20 @@ def _repair_shinhan_amount_rows(transaction: dict[str, Any], cells: list[str]) -
         transaction["amount"] = primary_amount
         return True
     return False
+
+
+def _repair_kb_short_billing_row(transaction: dict[str, Any], header: list[str], cells: list[str]) -> bool:
+    normalized_header = [re.sub(r"\s+", "", str(value)) for value in header]
+    if not {"이용카드", "이용일", "이용가맹점", "이용금액", "현지금액", "이번달결제금액"}.issubset(set(normalized_header)):
+        return False
+    if len(cells) != 6 or transaction.get("billing_amount") is not None:
+        return False
+    amount = transaction.get("amount")
+    billing_amount = _parse_amount(cells[5])
+    if not isinstance(amount, int) or billing_amount is None:
+        return False
+    transaction["billing_amount"] = billing_amount
+    return True
 
 
 def _repair_hyundai_shifted_rows(
@@ -865,12 +900,17 @@ def _normalize_date(value: str) -> str:
     if match and _valid_date_parts("2000", *match.groups()):
         month, day = match.groups()
         return f"{int(month):02d}-{int(day):02d}"
+    match = re.fullmatch(r"(\d{2})(\d{2})", text)
+    if match and _valid_date_parts("2000", *match.groups()):
+        month, day = match.groups()
+        return f"{int(month):02d}-{int(day):02d}"
     return text
 
 
 def _looks_like_date_token(value: str) -> bool:
     return bool(
         re.fullmatch(r"\d{1,2}[./-]\d{1,2}", value)
+        or re.fullmatch(r"\d{4}", value)
         or re.fullmatch(r"\d{2}[./-]\d{1,2}[./-]\d{1,2}", value)
         or re.fullmatch(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}", value)
     )
@@ -879,6 +919,9 @@ def _looks_like_date_token(value: str) -> bool:
 def _is_valid_date_like(value: str) -> bool:
     text = value.strip()
     match = re.fullmatch(r"(\d{1,2})[./-](\d{1,2})", text)
+    if match:
+        return _valid_date_parts("2000", *match.groups())
+    match = re.fullmatch(r"(\d{2})(\d{2})", text)
     if match:
         return _valid_date_parts("2000", *match.groups())
     match = re.fullmatch(r"(\d{2})[./-](\d{1,2})[./-](\d{1,2})", text)

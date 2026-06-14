@@ -91,8 +91,55 @@ def main() -> int:
         assert transactions[0]["transaction"]["merchant"] == "춘시루"
         assert transactions[0]["transaction"]["amount"] == 69650
 
+        kb = _kb_bizcard_statement(root / "kb")
+        kb_fields = [column["suggested_field"] for column in kb["mapping"].table_groups[0]["columns"]]
+        assert kb_fields == ["card_label", "date", "merchant", "extra", "amount", "foreign_amount", "billing_amount", "points"]
+        assert kb["mapping"].table_groups[0]["review_column_count"] == 0
+        assert kb["normalization"].review_count == 0
+        assert kb["normalization"].amount_total == 281210
+        kb_rows = _read_jsonl(kb["normalization"].transactions_path)
+        assert kb_rows[0]["transaction"]["date"] == "12-11"
+        assert kb_rows[0]["transaction"]["billing_amount"] == 171000
+
     print("profile signature test passed")
     return 0
+
+
+def _kb_bizcard_statement(root: Path) -> dict[str, object]:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    profiles_dir = root / "profiles"
+    output_dir.mkdir(parents=True)
+    profiles_dir.mkdir(parents=True)
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision(
+                ["이용카드", "이용일", "이용 가맹점", "가맹점 소재지(해외전표는 이용도시명)", "이용금액", "현지금액", "이번달 결제금액", "적립예정 포인트리"],
+                [
+                    ["마스터2870", "1211", "화천농협사내지점", "강원 화천군 사내면 수피령로 22", "171,000", "", "171,000", ""],
+                    ["마스터2870", "1212", "국군복지단", "서울 용산구 두텁바위로 54-99", "103,310", "", "103,310", ""],
+                    ["마스터2870", "1212", "국군복지단", "서울 용산구 두텁바위로 54-99", "6,900", "", "6,900", ""],
+                ],
+            )
+        ],
+        chunks=[_chunk()],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping = build_mapping_suggestions(
+        merge_output=merge_output,
+        output_dir=output_dir,
+        profiles_dir=profiles_dir,
+    )
+    assert mapping is not None
+    normalization = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping,
+        merged_dir=merged_dir,
+    )
+    assert normalization is not None
+    return {"mapping": mapping, "normalization": normalization}
 
 
 def _samsung_billing_statement(root: Path) -> dict[str, object]:

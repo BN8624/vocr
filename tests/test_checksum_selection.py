@@ -168,6 +168,30 @@ def main() -> int:
             {"field": "samsung_usage_amount_total", "label": "삼성 거래 이용금액 합계", "amount": 30000}
         ]
 
+        kb = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=300000,
+                billing_amount_total=300000,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("김*호 이번달 결제금액", 100000, page_number=1, chunk_id="page_001_totals_01"),
+                _vision_total("합계 12 건", 200000, page_number=2, chunk_id="page_002_chunk_01"),
+                _vision_total("합계 적립예정 포인트리", 999, page_number=2, chunk_id="page_002_chunk_01"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=3,
+        )
+        assert kb is not None
+        assert kb.checksum_status == "auto_selected_total_matched"
+        assert kb.summary["checksum"]["matched_total"]["label"] == "KB 페이지별 이번달 결제금액 합산"
+        assert kb.summary["checksum"]["matched_total"]["pages"] == [1, 2]
+        assert kb.summary["checksum"]["matched_field"] == "amount_total"
+
     print("checksum selection test passed")
     return 0
 

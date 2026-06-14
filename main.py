@@ -53,7 +53,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "request_delay_seconds": 5,
         "timeout_seconds": 120,
         "cache_enabled": True,
-        "max_retries": 1,
+        "max_retries": 4,
     },
     "output": {
         "pages_dir": "pages",
