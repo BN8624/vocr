@@ -91,6 +91,16 @@ def main() -> int:
         assert transactions[0]["transaction"]["merchant"] == "춘시루"
         assert transactions[0]["transaction"]["amount"] == 69650
 
+        samsung_page = _samsung_page_statement(root / "samsung_page")
+        samsung_page_fields = [column["suggested_field"] for column in samsung_page["mapping"].table_groups[0]["columns"]]
+        assert samsung_page_fields == ["date", "card_label", "merchant", "extra", "amount", "points", "discount", "points", "points"]
+        assert samsung_page["mapping"].table_groups[0]["review_column_count"] == 0
+        assert samsung_page["normalization"].review_count == 0
+        samsung_page_rows = _read_jsonl(samsung_page["normalization"].transactions_path)
+        assert samsung_page_rows[0]["transaction"]["amount"] == 31263
+        assert samsung_page_rows[0]["extra_fields"]["이용금액"] == "31,420"
+        assert samsung_page_rows[0]["extra_fields"]["discount"] == "-157"
+
         kb = _kb_bizcard_statement(root / "kb")
         kb_fields = [column["suggested_field"] for column in kb["mapping"].table_groups[0]["columns"]]
         assert kb_fields == ["card_label", "date", "merchant", "extra", "amount", "foreign_amount", "billing_amount", "points"]
@@ -155,6 +165,42 @@ def _samsung_billing_statement(root: Path) -> dict[str, object]:
                 [
                     ["02-04", "본인 301", "춘시루", "70,000", "69,650", "", "청구할인 -350"],
                     ["02-05", "본인 301", "주식회사 테스트", "12,000", "12,000", "", ""],
+                ],
+            )
+        ],
+        chunks=[_chunk()],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping = build_mapping_suggestions(
+        merge_output=merge_output,
+        output_dir=output_dir,
+        profiles_dir=profiles_dir,
+    )
+    assert mapping is not None
+    normalization = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping,
+        merged_dir=merged_dir,
+    )
+    assert normalization is not None
+    return {"mapping": mapping, "normalization": normalization}
+
+
+def _samsung_page_statement(root: Path) -> dict[str, object]:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    profiles_dir = root / "profiles"
+    output_dir.mkdir(parents=True)
+    profiles_dir.mkdir(parents=True)
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision(
+                ["이용일", "이용카드", "가맹점", "이용금액", "원금", "이용혜택", "혜택금액", "포인트명", "적립금액"],
+                [
+                    ["01-15", "본인 301", "노브랜드 춘천점", "31,420", "31,263", "청구할인", "-157", "", ""],
+                    ["01-17", "본인 301", "지에스칼텍스(주)봄내주유소", "61,195", "58,045", "청구할인", "-3,150", "", ""],
                 ],
             )
         ],

@@ -57,7 +57,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "api_key_env": "GEMINI_API_KEY",
         "prompt_path": "prompts/vision_extract_table.md",
         "request_delay_seconds": 5,
-        "timeout_seconds": 120,
+        "timeout_seconds": 200,
         "cache_enabled": True,
         "max_retries": 4,
         "concurrency": 2,

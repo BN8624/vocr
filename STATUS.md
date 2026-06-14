@@ -75,9 +75,12 @@ Treat it as a Hyundai billing_amount extraction or omission issue.
 - 신한_11 page+gemma: 11호출/0에러, 510행, 정규화 리뷰 0, 검증 0, 자동화 수락률 100%.
   검산은 `billing_amount_total=0` 퇴행 매칭을 막고 `페이지별 총합계 원금 합산=30,707,955`와
   `amount_total=30,707,955`를 자동 일치시킨다. flash-lite의 일시불 열밀림(금액→원금)이 gemma로 해소됨.
+- 삼성카드_7 page+gemma: timeout 200초/RPM 15로 신규 추출 완료. 7호출/0에러, 248행,
+  정규화 리뷰 0, 검증 0, 자동화 수락률 100%. page 헤더(`이용금액/원금/혜택금액`)에서는
+  `원금`을 amount로 보정하고 `혜택금액`은 discount로 분리한다.
 
 [다음 시작점 — 전부 캐시 dry-run, API 불필요]
-1. 현대/삼성/KB도 gemma page 모드로 1회씩 추출해 범용성 검증.
+1. 현대/KB도 gemma page 모드로 1회씩 추출해 범용성 검증.
 2. chunk 모드 100% 샘플 대비 page+gemma 비교 후 기본 모드 전환 판단.
 실행: python main.py --input "견본/<카드>.pdf" --output output/<dir> --extraction-mode page [--dry-run|--force-vision]
 ```

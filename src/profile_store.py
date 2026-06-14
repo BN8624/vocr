@@ -494,6 +494,26 @@ def _repair_kb_bizcard_shifted_columns(columns: list[dict[str, Any]]) -> None:
 def _repair_samsung_billing_statement_columns(columns: list[dict[str, Any]]) -> None:
     headers = [_norm(str(column.get("header", ""))) for column in columns]
     joined = "|".join(headers)
+    if {"이용일", "이용카드", "가맹점", "이용금액", "원금", "이용혜택", "혜택금액"}.issubset(set(headers)):
+        for index, header in enumerate(headers):
+            if header == "이용일":
+                _set_column_role(columns[index], "date", "high", "삼성카드 page 표의 이용일 열로 보정합니다.")
+            elif header == "이용카드":
+                _set_column_role(columns[index], "card_label", "high", "삼성카드 page 표의 카드 식별 열로 보정합니다.")
+            elif header == "가맹점":
+                _set_column_role(columns[index], "merchant", "high", "삼성카드 page 표의 가맹점 열로 보정합니다.")
+            elif header == "이용금액":
+                _set_column_role(columns[index], "extra", "medium", "삼성카드 page 표에서는 원거래 이용금액을 보조 원본 필드로 남깁니다.")
+            elif header == "원금":
+                _set_column_role(columns[index], "amount", "high", "삼성카드 page 표의 원금 열을 검산 기준 금액으로 보정합니다.")
+            elif header == "이용혜택":
+                _set_column_role(columns[index], "points", "medium", "이용혜택 설명은 보조 혜택 필드로 남깁니다.")
+            elif header == "혜택금액":
+                _set_column_role(columns[index], "discount", "medium", "혜택금액은 원금과 분리된 할인/혜택 금액입니다.")
+            elif header in {"포인트명", "적립금액"}:
+                _set_column_role(columns[index], "points", "medium", "포인트 정보는 거래 원금과 분리합니다.")
+        return
+
     if "입금하실금액" not in joined:
         return
 

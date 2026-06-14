@@ -336,3 +336,10 @@
 - 원금 0 행은 신한 표에서 `취소`, `부분취소`, `부담경감`, `소비쿠폰`, `면제` 등으로 이번 달 원금이 0인 조정 행이다. 이 행들은 원본 합계에도 0으로 반영되므로 `amount_zero` 검증 이슈에서 제외한다.
 - `03정기1702487618`, `06수신로3473966375` 같은 관리번호 결합 공과금 가맹점은 숫자오염이 아니라 신한 공과금 표기다. 기존 `12전기...` 예외에 더해 `NN정기...`, `NN수신료...`, `NN수신로...` 패턴을 숫자 중심 가맹점 예외로 인정했다.
 - 최종 캐시 dry-run 결과: `python main.py --input "견본/신한카드_11.pdf" --output output/acceptance_shinhan_11_gemma --extraction-mode page --dry-run`, `llm_calls=0`, `vision_ok=11`, `transaction_count=510`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, 자동화 수락률 100%.
+
+## 2026-06-14 삼성카드_7 page+gemma 신규 추출
+
+- 사용자가 "지금 새로 해야돼"라고 정정해 기존 chunk 캐시를 쓰지 않고 `output/acceptance_samsung_7_gemma`를 새로 만들었다. 최초 timeout 120초 실행은 page 1/3/4/6에서 `The read operation timed out`이 났고, 원인은 API 응답 read timeout이었다.
+- RPM은 이미 `main.py`/`config.yaml` 기준 15였고, 내부 fallback 10을 내가 잘못 읽었다. timeout만 200초로 올려 처음부터 다시 추출하니 7페이지 모두 성공했다.
+- 삼성 page+gemma 헤더는 `이용일|이용카드|가맹점|이용금액|원금|이용혜택|혜택금액|포인트명|적립금액`으로 들어온다. 기존 삼성 보정은 `입금하실금액` 헤더에만 반응해 `이용금액`을 amount로 잡았으므로, page 헤더 전용으로 `원금`을 amount, `혜택금액`을 discount, `이용금액`을 extra로 보정했다.
+- 최종 결과: `python main.py --input "견본/삼성카드_7.pdf" --output output/acceptance_samsung_7_gemma --extraction-mode page --force-vision` 후 캐시 dry-run, `vision_ok=7`, `transaction_count=248`, `normalization_review_count=0`, `validation_issue_row_count=0`, `checksum_status=auto_selected_total_matched`, 자동화 수락률 100%.
