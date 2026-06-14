@@ -122,36 +122,36 @@ def _transaction_count(
 
 
 def _simple_mapping_block(review_path: Path, mapping_output: MappingOutput) -> str:
-    cards = []
+    rows = []
     for group in mapping_output.table_groups:
         for column in group.get("columns", []):
             if not isinstance(column, dict) or not column.get("requires_review"):
                 continue
-            cards.append(_simple_mapping_column_card(column, mapping_output.option_labels))
-    if not cards:
+            rows.append(_simple_mapping_column_row(column, mapping_output.option_labels))
+    if not rows:
         return ""
     return (
         '<div id="mapping" class="mapping-panel" '
         f'data-mapping-path="{escape(str(mapping_output.suggestions_path))}" '
         f'data-profile-dir="{escape(str(mapping_output.profile_dir))}">'
+        '<div class="mapping-header">'
         "<h3>컬럼 맞추기</h3>"
-        '<div class="mapping-columns">'
-        f"{''.join(cards)}"
-        "</div>"
-        '<div class="mapping-actions">'
         '<button type="button" id="save-mapping">저장</button>'
         '<span id="mapping-message" class="note"></span>'
+        "</div>"
+        '<div class="mapping-table">'
+        '<div class="mapping-table-head"><span>원본 컬럼</span><span>샘플</span><span>엑셀 항목</span></div>'
+        f"{''.join(rows)}"
         "</div>"
         "</div>"
     )
 
 
-def _simple_mapping_column_card(column: dict[str, Any], option_labels: dict[str, str]) -> str:
+def _simple_mapping_column_row(column: dict[str, Any], option_labels: dict[str, str]) -> str:
     column_id = str(column.get("column_id", ""))
     suggested = str(column.get("suggested_field", "extra"))
     samples = column.get("sample_values", [])
     sample_text = " / ".join(escape(str(value)) for value in samples[:3]) if isinstance(samples, list) else ""
-    sample_html = f'<p class="sample-values">{sample_text}</p>' if sample_text else ""
     options = []
     visible_fields = [
         "date",
@@ -171,11 +171,9 @@ def _simple_mapping_column_card(column: dict[str, Any], option_labels: dict[str,
     return (
         '<div class="mapping-column needs-review" '
         f'data-column-id="{escape(column_id)}" data-original-field="{escape(suggested)}">'
-        f"<h4>{escape(str(column.get('header') or column_id))}</h4>"
-        f"{sample_html}"
-        "<label>"
+        f"<strong>{escape(str(column.get('header') or column_id))}</strong>"
+        f'<span class="sample-values">{sample_text}</span>'
         f"<select>{''.join(options)}</select>"
-        "</label>"
         "</div>"
     )
 

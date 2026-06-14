@@ -18,7 +18,7 @@
       const select = card.querySelector('select');
       return {
         column_id: card.dataset.columnId || '',
-        header: card.querySelector('h4')?.textContent || '',
+        header: card.querySelector('strong')?.textContent || '',
         suggested_field: card.dataset.originalField || '',
         selected_field: select?.value || ''
       };
