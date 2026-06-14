@@ -271,6 +271,18 @@ def _call_gemini_text(
             f"{json.dumps(known_header, ensure_ascii=False)} 배열을 그대로 출력하세요."
         )
 
+    is_gemma = model.lower().startswith("gemma")
+    generation_config: dict[str, Any] = {
+        "responseMimeType": "text/plain",
+        "temperature": 0,
+        "topP": 0.1,
+        # Gemma 4의 출력 한도는 32768이라 그 이상은 400. 모델별 상한으로 캡한다.
+        "maxOutputTokens": min(max_output_tokens, 32768) if is_gemma else max_output_tokens,
+    }
+    if is_gemma:
+        # 공식 문서/Google 스태프 확인: Gemma 4 추론 off는 thinkingLevel MINIMAL (thinkingBudget 미지원).
+        generation_config["thinkingConfig"] = {"thinkingLevel": "MINIMAL"}
+
     payload = {
         "systemInstruction": {"parts": [{"text": prompt + header_hint}]},
         "contents": [
@@ -282,12 +294,7 @@ def _call_gemini_text(
                 ],
             }
         ],
-        "generationConfig": {
-            "responseMimeType": "text/plain",
-            "temperature": 0,
-            "topP": 0.1,
-            "maxOutputTokens": max_output_tokens,
-        },
+        "generationConfig": generation_config,
         "safetySettings": [
             {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
             {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
@@ -346,6 +353,19 @@ def _parse_jsonl(text: str, page: PageImage, known_header: list[str] | None) -> 
                 page_header = [str(v).strip() for v in obj]
             continue
         if not isinstance(obj, dict):
+            continue
+        if obj.get("__total") is True:
+            # 2단 확장: 검산용 집계행. 거래 rows에는 넣지 않고 totals 후보로만 보존한다.
+            value_text = str(obj.get("value", obj.get("amount", "")))
+            totals.append(
+                {
+                    "label": str(obj.get("label", "")).strip() or "원본 합계",
+                    "value_text": value_text,
+                    "amount": _parse_amount(value_text),
+                    "needs_review": False,
+                    "review_reason": "",
+                }
+            )
             continue
         if obj.get("__skip") is True:
             continue

@@ -28,6 +28,7 @@ def main() -> int:
             '["이용일","가맹점","이용금액","결제원금"]',
             '{"이용금액":"10,000","이용일":"01.12","가맹점":"노브랜드","결제원금":"10,000"}',
             '{"이용일":"01.13","가맹점":"택시","이용금액":"3,500"}',
+            '{"__total": true, "label": "총 합계", "value": "13,500"}',
             '{"이용일":"소계","이용금액":"13,500"}',
             '{"__skip": true, "이용일":"합계"}',
         ]
@@ -35,14 +36,16 @@ def main() -> int:
     data = _parse_jsonl(text, page=_page(1), known_header=None)
 
     assert data["header"] == ["이용일", "가맹점", "이용금액", "결제원금"]
-    # 집계행("소계")과 __skip 행은 거래에서 제외 → 2건만 남는다
+    # __total / 집계행("소계") / __skip 행은 모두 거래에서 제외 → 2건만 남는다
     assert len(data["rows"]) == 2
     # 객체 키 순서가 뒤섞여도 헤더 순서대로 cells가 정렬되어 열밀림이 없다
     assert data["rows"][0]["cells"] == ["01.12", "노브랜드", "10,000", "10,000"]
     # 빈 컬럼(결제원금)은 공백으로 채워 위치를 보존한다
     assert data["rows"][1]["cells"] == ["01.13", "택시", "3,500", ""]
-    # sop010 충실 이식: 집계행은 totals로 보존하지 않고 버린다(HTML parseRawText 동일)
-    assert data["totals"] == []
+    # 2단 확장: __total은 검산용 totals로 보존(AGGREGATE_RE로 걸린 평문 소계는 버린다)
+    assert len(data["totals"]) == 1
+    assert data["totals"][0]["label"] == "총 합계"
+    assert data["totals"][0]["amount"] == 13500
 
     # sop010 충실 이식: knownHeader(1쪽 확정 헤더)가 있으면 2쪽~는 강제 통일.
     # 페이지가 다른 헤더 행을 내도 무시하고 knownHeader로 정렬한다(다단 헤더 어긋남 방지).

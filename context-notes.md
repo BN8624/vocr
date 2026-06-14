@@ -310,3 +310,12 @@
 - generationConfig: temperature 0, topP 0.1, maxOutputTokens 65535, safety 전부 BLOCK_NONE. MAX_TOKENS 도달 페이지는 검토 플래그.
 - 재시도: 현행 유지(max_retries, 429→30초, 그 외 지수백오프).
 - 캐시: page_NNN.vision.json (기존 청크 chunk_id 캐시와 키 분리).
+
+## 2026-06-14 page 모드 모델을 gemma-4-31b-it로 변경
+
+- sop010 충실 이식 후에도 신한_11 page 모드에서 일시불/공과금 행의 금액이 열밀림으로 잘못된 열에 들어갔다. 원본 이미지 확인 결과 그 금액은 물리적으로 `원금(이번달 내실 금액)` 열에 있는데(일시불은 전액이 이번 달 원금), gemini-3.1-flash-lite가 `금액(이용혜택)` 열로 밀어 넣었다.
+- 사용자 판단: 3.1 Flash Lite는 한계라 프롬프트로 더 시키면 악화된다. 모델을 gemma-4-31b-it로 교체.
+- 공식문서/Google 포럼(스태프 확인)으로 정확한 사용법 확인: Gemma 4 추론 off는 `generationConfig.thinkingConfig.thinkingLevel="MINIMAL"`(thinkingBudget은 미지원 400). systemInstruction·safetySettings·responseMimeType는 정상 지원. outputTokenLimit=32768이라 토큰 캡 필요.
+- `src/page_extractor.py._call_gemini_text`에 gemma 분기 추가(thinkingLevel MINIMAL + maxOutputTokens 32768 캡). `--model` CLI와 `extraction.page_model` config 추가. page 모드 기본 모델을 gemma-4-31b-it로, chunk 모드는 vision.model(flash-lite) 유지.
+- 결과: 신한_11 page 모드 gemma 추론 off는 일시불 전기 행 금액을 `원금`에 정확히 배치(열밀림 해소). 11호출/0에러, 510행, 정규화 리뷰 1, 검증 6(전부 양성 false-positive: 공과금 가맹점명+관리번호 5 + 기본연회비 1). amount_total 31.2M(flash-lite 29.9M, chunk 32.6M에 근접). 대가는 31B라 flash-lite보다 느림.
+- 남은 2단: 공과금 가맹점 false-positive(03정기·06수신로 등)를 신한 숫자오염 예외에 추가. 캐시 dry-run으로 처리.

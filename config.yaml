@@ -24,6 +24,7 @@ total_extraction:
 extraction:
   mode: chunk            # chunk(기존 겹침 청크) | page(sop010식 페이지 단위 헤더키 JSON)
   page_prompt_path: prompts/page_extract_jsonl.md
+  page_model: gemma-4-31b-it   # page 모드 전용 모델. flash-lite 열밀림을 잡음(추론 off 자동 적용)
 
 vision:
   provider: gemini

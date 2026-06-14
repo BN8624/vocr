@@ -21,7 +21,11 @@ from src.vision_extractor import extract_chunks_with_vision, load_cached_vision_
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "extraction": {"mode": "chunk", "page_prompt_path": "prompts/page_extract_jsonl.md"},
+    "extraction": {
+        "mode": "chunk",
+        "page_prompt_path": "prompts/page_extract_jsonl.md",
+        "page_model": "gemma-4-31b-it",
+    },
     "render": {"dpi": 300, "image_format": "png"},
     "chunking": {
         "header_ratio": 0.12,
@@ -253,6 +257,11 @@ def parse_args() -> argparse.Namespace:
         help="Override extraction.mode: chunk(겹침 청크) 또는 page(페이지 단위 헤더키).",
     )
     parser.add_argument(
+        "--model",
+        default=None,
+        help="Override vision.model (예: gemma-4-31b-it). Gemma는 자동으로 추론 off+토큰 캡 적용.",
+    )
+    parser.add_argument(
         "--mapping-profile",
         action="append",
         default=[],
@@ -279,6 +288,8 @@ def main() -> int:
         config = load_config(config_path)
         if args.extraction_mode:
             config.setdefault("extraction", {})["mode"] = args.extraction_mode
+        if args.model:
+            config.setdefault("vision", {})["model"] = args.model
         output_dirs = ensure_output_dirs(output_dir, config)
         page_crop_profile = load_page_crop_profile(output_dirs["merged"])
 
@@ -310,11 +321,16 @@ def main() -> int:
                 page_prompt_path = Path(str(config.get("extraction", {}).get("page_prompt_path", "prompts/page_extract_jsonl.md")))
                 if not page_prompt_path.is_absolute():
                     page_prompt_path = config_path.parent / page_prompt_path
+                page_vision_cfg = dict(config["vision"])
+                page_model = str(config.get("extraction", {}).get("page_model", "")).strip()
+                if page_model and not args.model:
+                    page_vision_cfg["model"] = page_model
+                logging.info("Page-mode model: %s", page_vision_cfg.get("model"))
                 vision_results = extract_pages_with_vision(
                     pages=pages,
                     cache_dir=output_dirs["cache"],
                     prompt_path=page_prompt_path,
-                    config=config["vision"],
+                    config=page_vision_cfg,
                     force=bool(args.force_vision),
                 )
                 llm_calls = sum(1 for result in vision_results if not result.reused)
