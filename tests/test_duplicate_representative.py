@@ -81,6 +81,7 @@ def main() -> int:
         _assert_merchant_ocr_variant_duplicate_excluded(root / "merchant_ocr_variant")
         _assert_installment_variant_duplicates_excluded(root / "installment_variant")
         _assert_hyundai_combined_header_row_repaired(root / "hyundai_combined_header")
+        _assert_hyundai_billing_amount_repaired_from_header(root / "hyundai_billing_header")
 
     print("duplicate representative test passed")
     return 0
@@ -422,6 +423,54 @@ def _assert_hyundai_combined_header_row_repaired(root: Path) -> None:
     assert rows[0]["source"]["page"] == 7
     assert rows[0]["transaction"]["card_label"] == "본인 the Purple(KAL)"
     assert rows[0]["transaction"]["merchant"] == "한국정보통신 - 파이브가이즈"
+
+
+def _assert_hyundai_billing_amount_repaired_from_header(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    header = [
+        "이용일",
+        "이용카드",
+        "이용가맹점",
+        "이용금액",
+        "할부/회차",
+        "적립/할인율(%)",
+        "예상적립/할인",
+        "결제원금",
+        "결제 후 잔액",
+        "수수료(이자)",
+    ]
+    cells = ["01.17", "본인 ZERO 포인트형", "GSTHEFRESH춘천한숲시티점", "30,790", "", "1.0", "300", "28,790", "", ""]
+    merge_output = build_row_outputs(
+        vision_results=[_vision_with_header("page_001_chunk_01", header, [cells], page_number=1)],
+        chunks=[_chunk("page_001_chunk_01", root / "chunk_01.png", 1, page_number=1)],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[
+            _mapping_group_for(
+                header,
+                ["date", "card_label", "merchant", "amount", "extra", "discount", "points", "extra", "extra", "extra"],
+            )
+        ],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping_output,
+        merged_dir=merged_dir,
+    )
+    assert normalization_output is not None
+    assert normalization_output.amount_total == 30790
+    assert normalization_output.billing_amount_total == 28790
+    rows = _read_jsonl(normalization_output.transactions_path)
+    assert rows[0]["transaction"]["billing_amount"] == 28790
 
 
 def _vision_with_header(

@@ -397,6 +397,7 @@ def _repair_hyundai_shifted_rows(
     header: list[str],
     cells: list[str],
 ) -> bool:
+    repaired = _repair_hyundai_billing_amount_from_header(transaction, header, cells)
     if _repair_hyundai_combined_date_card_header(transaction, extra_fields, header, cells):
         return True
     if _repair_hyundai_owner_card_row(transaction, extra_fields, cells):
@@ -405,7 +406,28 @@ def _repair_hyundai_shifted_rows(
         return True
     if _repair_hyundai_direct_amount_row(transaction, cells):
         return True
-    return _repair_hyundai_small_amount_with_billing(transaction)
+    return _repair_hyundai_small_amount_with_billing(transaction) or repaired
+
+
+def _repair_hyundai_billing_amount_from_header(
+    transaction: dict[str, Any],
+    header: list[str],
+    cells: list[str],
+) -> bool:
+    if transaction.get("billing_amount") is not None:
+        return False
+    for index, label in enumerate(header):
+        normalized = re.sub(r"\s+", "", str(label))
+        if normalized not in {"결제원금", "결제원금(원)", "청구금액"}:
+            continue
+        if index >= len(cells):
+            continue
+        billing_amount = _parse_amount(cells[index])
+        if billing_amount is None:
+            continue
+        transaction["billing_amount"] = billing_amount
+        return True
+    return False
 
 
 def _repair_hyundai_combined_date_card_header(
