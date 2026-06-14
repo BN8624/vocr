@@ -5,6 +5,7 @@ import re
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import date
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
@@ -158,6 +159,8 @@ def _exclude_normalized_duplicates(rows: list[dict[str, Any]]) -> tuple[list[dic
             chunk_numbers = sorted(index for index in chunks if index is not None)
             if len(page_rows) < 2 or not _looks_like_normalized_overlap(chunk_numbers):
                 continue
+            if not _normalized_duplicate_merchants_match(page_rows):
+                continue
             representative = max(page_rows, key=_normalized_representative_score)
             representative_key = _source_key(representative)
             for row in page_rows:
@@ -194,6 +197,32 @@ def _normalized_duplicate_keys(row: dict[str, Any]) -> list[tuple[Any, ...]]:
         if isinstance(original_amount, int):
             keys.append(("installment_amount", page, transaction_type, original_amount, amount, billing_key))
     return keys
+
+
+def _normalized_duplicate_merchants_match(rows: list[dict[str, Any]]) -> bool:
+    merchant_keys = []
+    for row in rows:
+        transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+        merchant_key = _normalized_duplicate_merchant_key(transaction.get("merchant"))
+        if merchant_key:
+            merchant_keys.append(merchant_key)
+    if len(merchant_keys) < 2:
+        return False
+    first = merchant_keys[0]
+    return all(_normalized_duplicate_merchant_match(first, key) for key in merchant_keys)
+
+
+def _normalized_duplicate_merchant_match(left: str, right: str) -> bool:
+    if left == right:
+        return True
+    if min(len(left), len(right)) >= 4 and (left in right or right in left):
+        return True
+    return SequenceMatcher(None, left, right).ratio() >= 0.78
+
+
+def _normalized_duplicate_merchant_key(value: Any) -> str:
+    text = re.sub(r"\s+", "", str(value or "").lower())
+    return re.sub(r"\W+", "", text, flags=re.UNICODE)
 
 
 def _looks_like_normalized_overlap(chunk_numbers: list[int]) -> bool:

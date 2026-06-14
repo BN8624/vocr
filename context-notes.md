@@ -149,3 +149,13 @@
 - 현대카드_8의 checksum 보류는 행 단위 blocked가 아니라 샘플 단위 검산 확인 필요 상태이므로 `automation_summary.json`의 `checksum_review_required`로 표시한다.
 - 삼성카드_7은 재생성 결과 `auto_selected_total_matched`, `matched_field=amount_total_discount_reconciled`, difference 0으로 확인했다.
 - P0 기반 작업으로 검증된 각 거래 행에 `automation.row_status`, `confidence_score`, `risk_level`을 추가하고 `merged/automation_summary.json`을 생성하도록 했다.
+
+## 2026-06-14 현대카드_8 합계 불일치 추가 조사
+
+- 현대카드_8의 정규화 중복 제거는 기존에 같은 페이지, 날짜, 이용금액, 청구금액만으로 겹침 청크 중복을 제거했다.
+- 이 규칙은 `03.01 이동의즐거움_택시_0 10,000`과 `03.01 광주광역시도시공사 10,000`처럼 서로 다른 가맹점의 같은 금액 거래를 제거할 수 있었다.
+- 정규화 중복 제거 직전에 가맹점 정규화 키가 같거나 충분히 유사한 경우에만 제거하도록 바꿨고, 서로 다른 가맹점의 같은 날짜·금액 거래를 유지하는 회귀 테스트를 추가했다.
+- 현대카드_8 캐시 재생성 결과는 `transaction_count=297`, `amount_total=34,596,521`, `normalized_duplicate_excluded_count=27`, `row_issue_count=0`, `checksum_status=no_user_total_selected`다.
+- 원본 총합계 후보 합산 34,523,411과의 차이는 73,110원이며, 페이지 묶음별 차이는 1-2쪽 -10,000원, 3-4쪽 +88,000원, 5-6쪽 0원, 7-8쪽 -4,890원이다.
+- 단순 혜택/바우처 제외 행을 모두 반영해도 합계가 맞지 않으므로, 남은 원인은 현대카드 메인 청구 목록과 해외/정기결제/혜택 상세표의 중복 또는 금액 기준 차이를 더 구분해야 한다.
+- `--force-vision`으로 현대카드_8 전체를 재호출했지만 5-8쪽 누락과 검증 이슈가 늘어 결과가 악화됐다. 새 캐시는 폐기하고 `output/page_cache/hyundai/hyundai_8/cache`의 안정 캐시로 복구했다.
