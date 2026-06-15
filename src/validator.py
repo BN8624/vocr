@@ -171,6 +171,11 @@ def _validate_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]
             issues[key].append(_issue("merchant_mostly_numeric", f"가맹점 값이 숫자 중심입니다: {merchant}"))
         if merchant and len(merchant) <= 1:
             issues[key].append(_issue("merchant_too_short", f"가맹점 값이 너무 짧습니다: {merchant}"))
+        if merchant and _has_suspicious_merchant_text(merchant):
+            issues[key].append(_issue("merchant_text_suspicious", f"가맹점명에 OCR 오독 의심 문자열이 있습니다: {merchant}"))
+        correction_hint = _merchant_correction_hint(merchant)
+        if correction_hint:
+            issues[key].append(_issue("merchant_correction_candidate", f"가맹점명 교정 후보가 있습니다: {merchant} -> {correction_hint}"))
         if card_label and _looks_like_merchant(card_label):
             issues[key].append(_issue("card_label_merchant_like", f"카드명 값이 가맹점처럼 보입니다: {card_label}"))
         if (
@@ -906,6 +911,25 @@ def _looks_like_merchant(value: str) -> bool:
         return True
     merchant_tokens = ("주식회사", "(주)", "쿠팡", "네이버", "페이", "마트", "주유", "식당")
     return any(token in text for token in merchant_tokens)
+
+
+def _has_suspicious_merchant_text(value: str) -> bool:
+    text = value.strip()
+    if not text:
+        return False
+    suspicious_tokens = ("JOptionPane", "�", "\ufffd", "ㅁ")
+    if any(token in text for token in suspicious_tokens):
+        return True
+    return False
+
+
+def _merchant_correction_hint(value: str) -> str:
+    text = re.sub(r"\s+", "", value.strip())
+    hints = {
+        "에스입사십(주)": "예스이십사(주)",
+        "전정JOptionPane": "전화홍내과",
+    }
+    return hints.get(text, "")
 
 
 def _looks_like_card_label(value: str) -> bool:

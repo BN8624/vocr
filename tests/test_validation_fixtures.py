@@ -61,6 +61,23 @@ def main() -> int:
         assert foreign is not None
         assert foreign.issue_row_count == 0
 
+        suspicious_merchant = _run_rows(
+            temp_root / "suspicious_merchant",
+            [
+                _transaction("본인 the Purple(KAL)", "전정JOptionPane", 44300),
+                _transaction("본인 301", "에스입사십(주)", 18000),
+            ],
+        )
+        assert suspicious_merchant is not None
+        assert suspicious_merchant.issue_row_count == 2
+        suspicious_codes = {
+            issue["code"]
+            for sample in suspicious_merchant.summary["review_samples"]
+            for issue in sample["issues"]
+        }
+        assert "merchant_text_suspicious" in suspicious_codes
+        assert "merchant_correction_candidate" in suspicious_codes
+
         contaminated = _run_fixture(root, temp_root / "contaminated", "validation_contaminated.jsonl")
         assert contaminated is not None
         assert contaminated.issue_row_count == 5
