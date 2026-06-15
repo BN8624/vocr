@@ -40,6 +40,13 @@ def main() -> int:
                     header=["이용일", "이용카드", "가맹점명", "결제원금"],
                     cells=["01.02", "가족카드"],
                 ),
+                _source_row(
+                    page=1,
+                    local_row_index=3,
+                    header=["구분", "금액텍스트", "금액"],
+                    cells=["총 합계 결제원금", "3,000", "3000"],
+                    row_type="total",
+                ),
             ],
         )
         summary = {"checksum": {"status": "no_source_total", "source_total_candidates": []}}
@@ -85,7 +92,12 @@ def main() -> int:
             assert first[4:8] == ["01.01", "본인카드", "상점A", None]
             assert first[headers.index("extra_col_1")] == "남는값"
             assert second[4:8] == ["01.02", "가족카드", None, None]
-            assert sheet.max_row == 3
+            third = [cell.value for cell in next(sheet.iter_rows(min_row=4, max_row=4))]
+            assert third[3] == "total"
+            assert third[headers.index("구분")] == "총 합계 결제원금"
+            assert third[headers.index("금액텍스트")] == "3,000"
+            assert third[headers.index("금액")] == "3000"
+            assert sheet.max_row == 4
         finally:
             workbook.close()
 
@@ -93,8 +105,15 @@ def main() -> int:
     return 0
 
 
-def _source_row(page: int, local_row_index: int, header: list[str], cells: list[str]) -> dict[str, object]:
+def _source_row(
+    page: int,
+    local_row_index: int,
+    header: list[str],
+    cells: list[str],
+    row_type: str | None = None,
+) -> dict[str, object]:
     return {
+        **({"row_type": row_type} if row_type else {}),
         "source": {
             "file": "sample.pdf",
             "page": page,

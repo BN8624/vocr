@@ -18,8 +18,8 @@ NEEDS_VERIFICATION
 | Local acceptance sample runner | PARTIAL | `tests/regression_samples.py` | Runs local samples and writes report | Must become strict staged acceptance runner with automation metrics |
 | Sample manifest | PARTIAL | `tools/build_sample_manifest.py`, `tests/test_sample_manifest.py` | Standardizes issuer/sample discovery | Writes manifest, but canonical `samples/sample_manifest.json` workflow is not adopted yet |
 | Vision cache readiness check | DONE | `tools/check_vision_cache.py`, `tests/test_vision_cache_check.py` | Confirms whether one real API run can be reused for cache-only downstream tests | `output/acceptance_hyundai_1` now has 4/4 successful cached Vision JSON files |
-| Excel export | DONE | `src/excel_exporter.py`, `tests/test_original_table_export.py`, `output/original_table_acceptance_4.json` | Produces `원본표` first and keeps normalized/checksum support sheets | Needs visual spot-check against PDFs |
-| Raw cell preservation | DONE | `rows_raw.jsonl`, `rows_merged.jsonl`, `원본표`, `원본셀` sheet | Main Excel table source and audit trail | 4 representative max-page samples have 100% row/cell preservation |
+| Excel export | DONE | `src/excel_exporter.py`, `tests/test_original_table_export.py`, `output/original_table_acceptance_4.json`, `output/original_table_visual_audit.md` | Produces `원본표` first and keeps normalized/checksum support sheets | Long 안내문 and free-form section titles are not fully structured yet |
+| Raw cell preservation | DONE | `rows_raw.jsonl`, `rows_merged.jsonl`, `원본표`, `원본셀` sheet | Main Excel table source and audit trail | 4 representative max-page samples have 100% row/cell preservation including totals |
 | Duplicate representative selection | PARTIAL | `src/row_merger.py`, duplicate tests | Reduces inflated totals from overlap chunks | Needs new duplicate statuses from `newplan.md` |
 | Column mapping profiles | PARTIAL | `src/profile_store.py`, `profile_manager.py`, `profiles/README.md` | Reuses recurring layout mappings | Stable issuer promotion criteria not implemented |
 | Validation and column contamination checks | PARTIAL | `src/validator.py`, validation fixture tests | Catches swapped/contaminated columns | Needs row automation status and rates |
@@ -36,10 +36,9 @@ NEEDS_VERIFICATION
 
 ```text
 1. Use the 4 max-page representative samples as the practical acceptance set.
-2. Inspect any `원본표` rows where raw.header/raw.cells are visibly wrong.
-3. Fix upstream Vision extraction or row merge causes only when image/raw evidence supports it.
-4. Add higher-level PDF-visible accuracy checks after row/cell preservation is stable.
-5. Keep checksum/normalization as QA, not as the main Excel result.
+2. Keep checksum/normalization as QA, not as the main Excel result.
+3. Run `app.py` as the final PC-user workflow check.
+4. Decide later whether section titles and long 안내문 should be preserved beyond table rows/totals.
 ```
 
 ## 2026-06-15 Latest Product Goal Correction
@@ -89,6 +88,21 @@ Representative samples:
 - 현대카드: 현대카드_8
 `output/original_table_acceptance_4.json` records the latest 4-sample preservation audit.
 All 4 representative samples pass original-table preservation metrics.
+```
+
+## 2026-06-15 Latest Visual Audit And Totals Preservation
+
+```text
+Visual sampling found that transaction rows were preserved, but totals/subtotal rows were missing from `원본표`.
+Cause: page extraction stores `__total` rows under `totals`; row merger previously wrote only `rows`.
+Fix: `src/row_merger.py` now adds Vision `totals` as `row_type=total` original-preservation rows.
+`src/normalizer.py` excludes `row_type=total/section/note` from normalized transactions.
+Representative 4-sample metrics after regeneration:
+- KB kb_bzcard_13: 211/211 rows, 1157/1157 cells, 173 transactions.
+- 삼성카드_7: 260/260 rows, 1752/1752 cells, 248 transactions.
+- 신한카드_11: 594/594 rows, 2877/2877 cells, 510 transactions.
+- 현대카드_8: 325/325 rows, 2099/2099 cells, 289 transactions.
+`output/original_table_visual_audit.md` contains the audit summary.
 ```
 
 ## 2026-06-14 Handoff

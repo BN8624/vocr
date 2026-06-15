@@ -420,3 +420,14 @@
 - 대표 4개 샘플은 모두 기존 cache 기반 dry-run으로 새 `원본표` Excel 구조를 재생성했다.
 - `output/original_table_acceptance_4.json` 기준 4개 대표 샘플 모두 `원본표` 첫 시트, `전체명세_정규화`, `검산` 존재, row/cell coverage 100%, validation issue 0건이다.
 - 현대카드_8은 보존 지표와 validation issue는 통과하지만 checksum status는 `no_user_total_selected`다. 이는 앞서 합의한 7-8페이지 16,500원 차이 엣지케이스와 연결되며, 원본표 보존 실패로 분류하지 않는다.
+
+## 2026-06-15 원본표 육안 감사와 totals 보존
+
+- 대표 4개 샘플의 첫/중간/마지막 페이지를 `output/visual_audit/*.png`로 묶어 보고, Excel `원본표` 헤더와 행 구조를 대조했다.
+- 거래 행은 주요 PDF 열과 대체로 맞고 페이지 순서도 유지됐다.
+- 하지만 `총 합계`, `이용금액합계`, `할부 합계`, `일시불(일반) 소계`, `합 계 이번달 결제금액` 같은 합계/소계 행은 원본 PDF와 cache의 `totals`에는 있는데 `원본표`에는 없었다.
+- 원인은 `page_extractor.py`가 `__total` 행을 `totals`로 분리하고 `row_merger.py`가 `data.rows`만 `rows_merged.jsonl`에 쓰는 구조였다.
+- `src/row_merger.py`에서 `totals`를 `row_type=total` 원본 보존 행으로 추가했다. raw header는 `구분`, `금액텍스트`, `금액`이고, 원래 total 정보는 `extra_fields.original_total`에도 남긴다.
+- `src/normalizer.py`는 `row_type=total/section/note` 행을 `original_preserved`로 제외한다. 따라서 원본표에는 보이지만 정규화 거래 수와 검산용 거래 합계에는 섞이지 않는다.
+- 대표 4개 샘플 재생성 후 totals 포함 보존 지표는 KB 211/211행 1157/1157셀, 삼성 260/260행 1752/1752셀, 신한 594/594행 2877/2877셀, 현대 325/325행 2099/2099셀이다.
+- `output/original_table_visual_audit.md`에 육안 감사 결과를 정리했다.

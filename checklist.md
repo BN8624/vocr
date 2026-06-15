@@ -304,3 +304,14 @@
 - [x] 현대카드 `현대카드_8` 원본표 row/cell coverage 100% 확인.
 - [x] `output/original_table_acceptance_4.json`에 4개 대표 샘플 결과 저장.
 - [x] 개발용 분할 샘플인 삼성카드_1/2 신규 API 호출은 중단하고 범위에서 제외.
+
+## 2026-06-15 원본표 육안 샘플링과 totals 보존
+
+- [x] 대표 4개 샘플의 첫/중간/마지막 페이지 이미지와 Excel `원본표` 헤더를 대조.
+- [x] 거래 행은 PDF 표 주요 열과 Excel `원본표`가 대체로 일치함을 확인.
+- [x] 합계/소계 행이 `totals`로 분리되어 `원본표`에 빠지는 문제 확인.
+- [x] `src/row_merger.py`에서 Vision `totals`를 `row_type=total` 원본 보존 행으로 추가.
+- [x] `src/normalizer.py`에서 `row_type=total/section/note` 행을 정규화 거래 대상에서 제외.
+- [x] 대표 4개 샘플을 캐시 기반으로 재생성해 totals 행이 `원본표`에 들어오는지 확인.
+- [x] 전체 테스트 실행.
+- [x] `output/original_table_visual_audit.md` 갱신.

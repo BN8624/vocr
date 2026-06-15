@@ -184,6 +184,61 @@ def _collect_raw_rows(
                     },
                 }
             )
+        totals = [total for total in result.data.get("totals", []) if isinstance(total, dict)]
+        for offset, total in enumerate(totals, start=1):
+            image_ref = ""
+            if chunk:
+                image_ref = _safe_relative(output_dir, chunk.image_path)
+            label = str(total.get("label", "")).strip()
+            value_text = str(total.get("value_text", "")).strip()
+            amount = total.get("amount", "")
+            records.append(
+                {
+                    "schema_version": "1.0",
+                    "row_type": "total",
+                    "source": {
+                        "file": input_pdf.name,
+                        "page": int(result.data.get("page") or result.page_number),
+                        "chunk_id": result.chunk_id,
+                        "local_row_index": len(rows) + offset,
+                        "source_y_start": chunk.source_y_start if chunk else None,
+                        "source_y_end": chunk.source_y_end if chunk else None,
+                        "statement_type": "unknown",
+                        "period": "",
+                    },
+                    "raw": {
+                        "header": ["구분", "금액텍스트", "금액"],
+                        "cells": [label, value_text, "" if amount is None else str(amount)],
+                        "line_text": " ".join(value for value in [label, value_text] if value),
+                        "image_ref": image_ref,
+                    },
+                    "transaction": {
+                        "date": "",
+                        "card_label": "",
+                        "merchant": "",
+                        "amount": None,
+                        "billing_amount": None,
+                        "transaction_type": "",
+                    },
+                    "extra_fields": {
+                        "original_total": {
+                            "label": label,
+                            "value_text": value_text,
+                            "amount": amount,
+                        }
+                    },
+                    "quality": {
+                        "needs_review": bool(total.get("needs_review", False)),
+                        "review_reason": str(total.get("review_reason", "")),
+                        "confidence_note": "",
+                    },
+                    "merge": {
+                        "decision": "keep",
+                        "duplicate_group_id": "",
+                        "review_reason": "",
+                    },
+                }
+            )
     return records
 
 

@@ -88,6 +88,7 @@ def main() -> int:
         _assert_hyundai_missing_billing_repaired_from_amount(root / "hyundai_missing_billing")
         _assert_same_chunk_repeated_transactions_kept(root / "same_chunk_repeated")
         _assert_bottom_guard_overlap_duplicate_excluded(root / "bottom_guard_overlap")
+        _assert_total_rows_preserved_but_not_normalized(root / "total_rows")
 
     print("duplicate representative test passed")
     return 0
@@ -109,6 +110,46 @@ def _chunk(chunk_id: str, image_path: Path, chunk_index: int, page_number: int =
     )
 
 
+def _assert_total_rows_preserved_but_not_normalized(root: Path) -> None:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    output_dir.mkdir(parents=True)
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision(
+                "page_001",
+                [["03.14", "the Purple", "쿠팡", "10,000", "10,000"]],
+                header=["date", "card", "merchant", "amount", "billing"],
+                totals=[{"label": "총 합계 결제원금", "value_text": "10,000", "amount": 10000}],
+            )
+        ],
+        chunks=[_chunk("page_001", root / "page_001.png", 1)],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    merged_rows = _read_jsonl(merge_output.rows_merged_path)
+    assert len(merged_rows) == 2
+    assert merged_rows[1]["row_type"] == "total"
+    assert merged_rows[1]["raw"]["cells"] == ["총 합계 결제원금", "10,000", "10000"]
+
+    mapping_output = MappingOutput(
+        suggestions_path=merged_dir / "mapping_suggestions.json",
+        profile_dir=root / "profiles",
+        table_groups=[_mapping_group()],
+        option_labels={},
+        applied_profiles=[],
+    )
+    normalization_output = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping_output,
+        merged_dir=merged_dir,
+    )
+    assert normalization_output is not None
+    assert normalization_output.transaction_count == 1
+    assert normalization_output.summary["source_row_count"] == 2
+
+
 def _chunk_with_y(chunk_id: str, image_path: Path, chunk_index: int, source_y_start: int, source_y_end: int) -> ChunkImage:
     return ChunkImage(
         chunk_id=chunk_id,
@@ -125,7 +166,13 @@ def _chunk_with_y(chunk_id: str, image_path: Path, chunk_index: int, source_y_st
     )
 
 
-def _vision(chunk_id: str, cells_list: list[list[str]]) -> VisionResult:
+def _vision(
+    chunk_id: str,
+    cells_list: list[list[str]],
+    header: list[str] | None = None,
+    totals: list[dict[str, object]] | None = None,
+) -> VisionResult:
+    header = header or ["이용일", "이용카드", "이용가맹점", "이용금액", "결제원금"]
     return VisionResult(
         chunk_id=chunk_id,
         page_number=1,
@@ -135,7 +182,7 @@ def _vision(chunk_id: str, cells_list: list[list[str]]) -> VisionResult:
             "schema_version": "1.0",
             "page": 1,
             "chunk_id": chunk_id,
-            "header": ["이용일", "이용카드", "이용가맹점", "이용금액", "결제원금"],
+            "header": header,
             "rows": [
                 {
                     "local_row_index": index,
@@ -147,7 +194,7 @@ def _vision(chunk_id: str, cells_list: list[list[str]]) -> VisionResult:
                 }
                 for index, cells in enumerate(cells_list, start=1)
             ],
-            "totals": [],
+            "totals": totals or [],
             "needs_review": False,
             "review_reason": "",
             "notes": "",

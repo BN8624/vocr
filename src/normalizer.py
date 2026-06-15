@@ -94,6 +94,8 @@ def build_transactions(
 
 
 def _row_exclusion_reason(row: dict[str, Any]) -> str:
+    if str(row.get("row_type", "")).strip() in {"total", "section", "note"}:
+        return "original_preserved"
     merge = row.get("merge", {})
     if str(merge.get("decision", "keep")) == "duplicate_excluded":
         return "duplicate_excluded"
