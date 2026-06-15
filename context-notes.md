@@ -431,3 +431,11 @@
 - `src/normalizer.py`는 `row_type=total/section/note` 행을 `original_preserved`로 제외한다. 따라서 원본표에는 보이지만 정규화 거래 수와 검산용 거래 합계에는 섞이지 않는다.
 - 대표 4개 샘플 재생성 후 totals 포함 보존 지표는 KB 211/211행 1157/1157셀, 삼성 260/260행 1752/1752셀, 신한 594/594행 2877/2877셀, 현대 325/325행 2099/2099셀이다.
 - `output/original_table_visual_audit.md`에 육안 감사 결과를 정리했다.
+
+## 2026-06-15 배포 전 정리
+
+- `convert.py` 실사용 경로는 `python -X utf8 convert.py "견본\현대카드_8.pdf" --output output\acceptance_hyundai_8_gemma --dry-run`으로 확인했다.
+- `app.py`는 자동 클릭까지는 하지 않았지만 `tests/test_app_gui.py`로 GUI 생성, 진행 단계 매핑, 기본 동작 smoke를 확인했다.
+- `README.md`는 PC 사용자 기준 `python app.py`를 주 진입점으로 설명하고, 신규 PDF는 `--dry-run` 없이 실행해야 한다는 점을 명확히 했다.
+- `TEST_REPORT.md`는 대표 4개 샘플 기준 최신 보존 지표와 Excel 시트 계약으로 갱신했다.
+- 남은 실제 사용자 확인은 GUI에서 PDF 선택 후 시작 버튼을 눌러 진행바/로그/Excel 열기 버튼이 체감상 충분한지 보는 수동 UX 확인이다.

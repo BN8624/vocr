@@ -1,197 +1,91 @@
 # TEST_REPORT
 
-This report format follows `newplan.md`.
+This report follows the current original-table product goal.
 
 ## Latest Local Verification
 
-Last updated: 2026-06-13
+Last updated: 2026-06-15
 
-Commands recently used during development:
-
-```bash
-python -m compileall main.py serve_review.py profile_manager.py review.py src tests
-python tests/test_review_entrypoint.py
-python tests/test_review_html_smoke.py
-python tests/test_review_state_refresh.py
-python tests/test_validation_fixtures.py
-python tests/test_checksum_selection.py
-python tests/test_duplicate_representative.py
-python tests/test_column_quality.py
-python tests/test_profile_signature.py
-python tests/test_profile_manager.py
-python tests/test_total_chunks.py
-python tests/regression_samples.py
-python tests/test_sample_manifest.py
-python tests/test_vision_cache_check.py
-python tests/test_excel_exporter.py
-python tests/regression_samples.py --samples-dir 견본 --issuer 현대카드 --pages 1 --limit 1 --output output/first_hyundai_1_dry_run
-```
-
-## Acceptance Set
-
-Current local acceptance source:
-
-```text
-견본/
-```
-
-Current detected samples:
-
-```text
-삼성카드_1.pdf
-삼성카드_2.pdf
-삼성카드_5.pdf
-삼성카드_7.pdf
-신한카드_1.pdf
-신한카드_11.pdf
-신한카드_3.pdf
-현대카드_1.pdf
-현대카드_2.pdf
-현대카드_8.pdf
-```
-
-## Current Regression Coverage
-
-`tests/regression_samples.py` currently checks:
-
-```text
-page count
-chunk count
-review.html creation
-summary.json creation
-dry-run pass/fail
-optional --with-vision execution
-```
-
-It does not yet fully check:
-
-```text
-automation_summary.json
-auto_accept_rate
-manual_review_rate
-hard_review_rate
-blocked rows
-non-empty 전체명세
-all required Excel sheets
-stable profile reuse metrics
-silent error count
-```
-
-## Required Report Fields
-
-The acceptance report should evolve to include:
-
-```text
-sample_count
-issuer_count
-single-page sample results
-three-page sample results
-multi-page sample results
-average auto_accept_rate
-average manual_review_rate
-average hard_review_rate
-blocked sample count
-blocked row count
-top 10 failure reasons
-change from previous run
-```
-
-## Current Status
-
-```text
-sample_count: 10 local PDFs
-issuer_count: 3
-automation_summary coverage: PLANNED
-auto_accept_rate average: not measured
-manual_review_rate average: not measured
-hard_review_rate average: not measured
-blocked count: not measured
-full --with-vision acceptance: NEEDS_VERIFICATION
-```
-
-## Stepwise Acceptance Progress
-
-First selected sample:
-
-```text
-현대카드_1.pdf
-```
-
-Dry-run evidence:
-
-```text
-command: python tests/regression_samples.py --samples-dir 견본 --issuer 현대카드 --pages 1 --limit 1 --output output/first_hyundai_1_dry_run
-result: PASS
-pages: 1/1
-chunks: 4
-vision: not_run
-```
-
-Vision evidence:
-
-```text
-command attempted: python main.py --input "견본\현대카드_1.pdf" --output output\acceptance_hyundai_1 --force --force-vision
-result: pipeline completed but Vision calls failed under sandbox network restrictions
-failure: WinError 10013 socket access denied
-rows extracted: 0
-transaction_count: 0
-```
-
-Running the same command with external Gemini access must be done by the user locally because statement chunk images are sent to Google Gemini.
-
-Current cache check:
-
-```text
-command: python tools/check_vision_cache.py --output output\acceptance_hyundai_1
-previous result: not ready under sandbox API failure
-expected chunks: 4
-cached Vision JSON: 0
-error cache files: 4
-missing cache files: 0
-```
-
-After the user ran the real API command locally:
-
-```text
-command: python tools/check_vision_cache.py --output output\acceptance_hyundai_1
-result: ready
-expected chunks: 4
-cached Vision JSON: 4
-error cache files: 0
-missing cache files: 0
-```
-
-Cached downstream run:
-
-```text
-command: python main.py --input "견본\현대카드_1.pdf" --output output\acceptance_hyundai_1 --dry-run
-result: PASS, no API calls
-vision_ok: 4
-vision_errors: 0
-raw_row_count: 64
-transaction_count: 64
-validation_issue_row_count: 27
-checksum_status: no_user_total_selected
-Excel sheets: 전체명세, 검산, 원본셀, 추가필드, 확인필요
-```
-
-Current acceptance judgment:
-
-```text
-pipeline execution: PASS
-cache reuse: PASS
-Excel creation: PASS
-automation quality: FAIL
-reason: review/validation issue count is still high and source total selection is not reliable
-```
-
-## Next Required Test Milestone
+Commands verified:
 
 ```bash
-python tools/build_sample_manifest.py --samples samples --output samples/sample_manifest.json
-python -m pytest -q
-python tests/regression_samples.py
-python tests/regression_samples.py --with-vision
+python -X utf8 tests\test_app_gui.py
+python -X utf8 tests\test_convert_entrypoint.py
+python -X utf8 tests\test_original_table_metrics.py
+python -X utf8 convert.py "견본\현대카드_8.pdf" --output output\acceptance_hyundai_8_gemma --dry-run
 ```
 
-The first command and full pytest command are target commands from `newplan.md`; they are not fully implemented yet.
+Full test sweep also passed:
+
+```bash
+$tests = Get-ChildItem tests -Filter 'test_*.py' | Sort-Object Name
+foreach ($test in $tests) { python -X utf8 $test.FullName }
+```
+
+## Representative Acceptance Set
+
+Current acceptance scope is the largest-page representative sample for each card company.
+
+```text
+KB: kb_bzcard_13.pdf
+삼성카드: 삼성카드_7.pdf
+신한카드: 신한카드_11.pdf
+현대카드: 현대카드_8.pdf
+```
+
+Split-down PDFs in `견본/` remain useful for staged debugging, but they are not the final acceptance set by themselves.
+
+## Acceptance Results
+
+Latest preservation audit:
+
+```text
+output/original_table_acceptance_4.json
+output/original_table_visual_audit.md
+```
+
+| Card company | Sample | Original rows | Original cells | Transactions | Validation issues | Checksum |
+|---|---|---:|---:|---:|---:|---|
+| KB | kb_bzcard_13 | 211/211 | 1157/1157 | 173 | 0 | auto_selected_total_matched |
+| 삼성카드 | 삼성카드_7 | 260/260 | 1752/1752 | 248 | 0 | auto_selected_total_matched |
+| 신한카드 | 신한카드_11 | 594/594 | 2877/2877 | 510 | 0 | auto_selected_total_matched |
+| 현대카드 | 현대카드_8 | 325/325 | 2099/2099 | 289 | 0 | no_user_total_selected |
+
+Hyundai remains `no_user_total_selected` because of the documented `7-8페이지 16,500원 차이` edge case. This is not an original-table preservation failure.
+
+## Excel Contract
+
+Every representative workbook must use this sheet order:
+
+```text
+원본표
+전체명세_정규화
+검산
+원본셀
+추가필드
+확인필요
+```
+
+The first sheet, `원본표`, is the main output. It preserves rows from `rows_merged.jsonl`, including `row_type=total` rows generated from Vision `totals`.
+
+## Current Pass Criteria
+
+```text
+result.xlsx exists
+원본표 is the first sheet
+원본표 is non-empty
+rows_merged.jsonl row coverage is 100%
+rows_merged.jsonl non-empty cell coverage is 100%
+전체명세_정규화 exists
+검산 exists
+validation issue rows == 0, or there is a documented exception
+checksum is auto matched, or there is a documented exception
+```
+
+## Known Limits
+
+```text
+Long 안내문 and free-form section titles are not fully structured yet.
+The current preserved original table covers Vision rows and Vision totals.
+PDF visual ground-truth accuracy still depends on representative visual sampling.
+```

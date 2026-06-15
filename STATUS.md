@@ -37,7 +37,7 @@ NEEDS_VERIFICATION
 ```text
 1. Use the 4 max-page representative samples as the practical acceptance set.
 2. Keep checksum/normalization as QA, not as the main Excel result.
-3. Run `app.py` as the final PC-user workflow check.
+3. Run one manual `app.py` click-through on the user's PC before calling it fully packaged.
 4. Decide later whether section titles and long 안내문 should be preserved beyond table rows/totals.
 ```
 
@@ -103,6 +103,16 @@ Representative 4-sample metrics after regeneration:
 - 신한카드_11: 594/594 rows, 2877/2877 cells, 510 transactions.
 - 현대카드_8: 325/325 rows, 2099/2099 cells, 289 transactions.
 `output/original_table_visual_audit.md` contains the audit summary.
+```
+
+## 2026-06-15 Latest Pre-Deployment Cleanup
+
+```text
+`convert.py` cache-only user command was verified with 현대카드_8.
+`tests/test_app_gui.py` and `tests/test_convert_entrypoint.py` pass.
+`README.md` now documents `python app.py` as the intended PC entry point.
+`TEST_REPORT.md` now reflects the 2026-06-15 representative 4-sample acceptance result.
+Remaining check before handoff is a manual GUI click-through: select PDF, start, watch progress, open Excel.
 ```
 
 ## 2026-06-14 Handoff

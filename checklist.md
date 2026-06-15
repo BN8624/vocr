@@ -315,3 +315,12 @@
 - [x] 대표 4개 샘플을 캐시 기반으로 재생성해 totals 행이 `원본표`에 들어오는지 확인.
 - [x] 전체 테스트 실행.
 - [x] `output/original_table_visual_audit.md` 갱신.
+
+## 2026-06-15 배포 전 문서와 실사용 경로 정리
+
+- [x] `convert.py`로 대표 샘플 cache-only 실사용 명령 재확인.
+- [x] `app.py` GUI smoke 테스트 재확인.
+- [x] `README.md`를 대표 4개 acceptance, page mode, `원본표` 중심 사용법으로 갱신.
+- [x] `TEST_REPORT.md`를 2026-06-15 기준 대표 4개 샘플 결과로 갱신.
+- [x] `python app.py`를 PC 사용자 진입점으로 문서화.
+- [x] 신규 PDF는 `--dry-run` 없이 실행하고, cache 재사용 때만 `--dry-run`을 쓰도록 문서화.

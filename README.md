@@ -89,31 +89,28 @@ No raw cell should be discarded. If a row has more cells than headers, the remai
 
 ## Success Criteria
 
-Current stepwise acceptance starts with one single-page sample:
-
-```bash
-python tests/regression_samples.py --samples-dir 견본 --issuer 현대카드 --pages 1 --limit 1
-```
-
-Primary acceptance command:
-
-```bash
-python tests/regression_samples.py --with-vision
-```
-
-The dry-run command remains useful for page rendering, chunking, and HTML structure checks:
-
-```bash
-python tests/regression_samples.py
-```
-
-First real API target:
+Current representative acceptance samples:
 
 ```text
-현대카드_1.pdf
+KB: kb_bzcard_13.pdf
+삼성카드: 삼성카드_7.pdf
+신한카드: 신한카드_11.pdf
+현대카드: 현대카드_8.pdf
 ```
 
-The configured Vision model is `gemini-3.1-flash-lite` in `config.yaml`.
+Cache-only representative verification:
+
+```bash
+python convert.py "견본\현대카드_8.pdf" --output output\acceptance_hyundai_8_gemma --dry-run
+```
+
+For a new PDF with no cache, run without `--dry-run`:
+
+```bash
+python convert.py "견본\현대카드_8.pdf"
+```
+
+The configured page-mode Vision model is `gemma-4-31b-it` in `config.yaml`. The older chunk mode still uses `gemini-3.1-flash-lite`.
 
 Each representative acceptance sample should produce:
 
@@ -134,13 +131,14 @@ output/<sample_name>/
 Passing means more than `result.xlsx` existing. The target is:
 
 ```text
-all sample PDFs render successfully
-all chunks are generated
-Vision extraction succeeds for all required chunks
+PDF pages render successfully
+page-mode Vision extraction succeeds or cache is reused
 result.xlsx is generated
 원본표 sheet exists
 원본표 is the first sheet
 원본표 is non-empty
+원본표 row/cell preservation is 100% against rows_merged.jsonl
+합계/소계 rows from Vision totals are preserved as row_type=total
 전체명세_정규화, 검산, 원본셀, 추가필드, 확인필요 sheets exist
 automation_summary.json exists
 blocked samples == 0
@@ -223,7 +221,18 @@ PC desktop app:
 python app.py
 ```
 
-The app lets you select PDF files, choose an output folder, start conversion, watch the progress bar and blinking current step, then open the generated Excel file.
+The app lets you select PDF files, choose an output folder, start conversion, watch the progress bar and blinking current step, then open the generated Excel file. This is the intended PC user entry point.
+
+Normal user flow:
+
+```text
+1. Run `python app.py`.
+2. Select one or more PDF statements.
+3. Keep `기존 cache만 사용` off for a new PDF.
+4. Click `시작`.
+5. Open the generated `result.xlsx`.
+6. Check the first sheet, `원본표`.
+```
 
 For normal use, run `convert.py`. It creates one output folder per PDF and writes `result.xlsx`.
 
@@ -290,28 +299,28 @@ python main.py --input "견본\삼성카드_1.pdf" --output output/samsung_1 --d
 
 ## One API Call, Then Cache-Only Testing
 
-For the first acceptance target, run the real API once on the PC:
+For a new sample, run the real API once on the PC:
 
 ```bash
-python main.py --input "견본\현대카드_1.pdf" --output output\acceptance_hyundai_1 --force --force-vision
+python main.py --input "견본\현대카드_8.pdf" --output output\acceptance_hyundai_8_gemma --extraction-mode page --force-vision
 ```
 
 That sends the generated chunk images to Gemini once and writes successful responses as:
 
 ```text
-output/acceptance_hyundai_1/cache/*.vision.json
+output/acceptance_hyundai_8_gemma/cache/*.vision.json
 ```
 
 After the API call, check whether every body chunk and total chunk has a successful cache file:
 
 ```bash
-python tools/check_vision_cache.py --output output\acceptance_hyundai_1 --write-report
+python tools/check_vision_cache.py --output output\acceptance_hyundai_8_gemma --write-report
 ```
 
 If it says `Ready for cache-only tests: yes`, downstream work can be repeated without calling the API:
 
 ```bash
-python main.py --input "견본\현대카드_1.pdf" --output output\acceptance_hyundai_1 --dry-run
+python main.py --input "견본\현대카드_8.pdf" --output output\acceptance_hyundai_8_gemma --extraction-mode page --dry-run
 ```
 
 If the cache checker reports `.vision.error.json` files, the previous API attempt failed for those chunks and the real API command must be run again.
@@ -386,7 +395,8 @@ output/<sample_name>/
 Excel sheets:
 
 ```text
-전체명세
+원본표
+전체명세_정규화
 검산
 원본셀
 추가필드
