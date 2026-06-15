@@ -42,12 +42,14 @@ def export_excel(
     workbook.remove(default_sheet)
 
     summary = validation_output.summary
-    ws_transactions = workbook.create_sheet("전체명세")
+    ws_original = workbook.create_sheet("원본표")
+    ws_transactions = workbook.create_sheet("전체명세_정규화")
     ws_checksum = workbook.create_sheet("검산")
     ws_raw = workbook.create_sheet("원본셀")
     ws_extra = workbook.create_sheet("추가필드")
     ws_review = workbook.create_sheet("확인필요")
 
+    _write_original_table(ws_original, raw_rows)
     _write_transactions(ws_transactions, rows)
     _write_checksum(ws_checksum, summary)
     _write_raw_cells(ws_raw, raw_rows)
@@ -79,6 +81,72 @@ def load_excel_export(output_dir: Path, filename: str = "result.xlsx") -> ExcelE
         transaction_count=0,
         review_count=0,
     )
+
+
+def _write_original_table(sheet: Any, rows: list[dict[str, Any]]) -> None:
+    tracking_headers = ["page", "chunk_id", "local_row_index", "row_type"]
+    original_headers, max_extra_count = _collect_original_headers(rows)
+    extra_headers = [f"extra_col_{index}" for index in range(1, max_extra_count + 1)]
+    sheet.append(tracking_headers + original_headers + extra_headers)
+
+    for row in rows:
+        source = _dict(row.get("source"))
+        raw = _dict(row.get("raw"))
+        row_headers = [str(value) for value in _list(raw.get("header"))]
+        cells = ["" if value is None else str(value) for value in _list(raw.get("cells"))]
+        value_by_header: dict[str, str] = {}
+        extras: list[str] = []
+        for index, cell in enumerate(cells):
+            if index < len(row_headers):
+                header = row_headers[index]
+                if header and header not in value_by_header:
+                    value_by_header[header] = cell
+                    continue
+            extras.append(cell)
+
+        row_type = _original_row_type(row)
+        sheet.append(
+            [
+                source.get("page", ""),
+                source.get("chunk_id", ""),
+                source.get("local_row_index", ""),
+                row_type,
+            ]
+            + [value_by_header.get(header, "") for header in original_headers]
+            + [extras[index] if index < len(extras) else "" for index in range(max_extra_count)]
+        )
+
+
+def _collect_original_headers(rows: list[dict[str, Any]]) -> tuple[list[str], int]:
+    headers: list[str] = []
+    seen: set[str] = set()
+    max_extra_count = 0
+    for row in rows:
+        raw = _dict(row.get("raw"))
+        row_headers = [str(value) for value in _list(raw.get("header"))]
+        cells = _list(raw.get("cells"))
+        for header in row_headers:
+            if header and header not in seen:
+                seen.add(header)
+                headers.append(header)
+        max_extra_count = max(max_extra_count, max(0, len(cells) - len(row_headers)))
+    return headers, max_extra_count
+
+
+def _original_row_type(row: dict[str, Any]) -> str:
+    if row.get("row_type"):
+        return str(row.get("row_type"))
+    merge = _dict(row.get("merge"))
+    if merge.get("is_duplicate"):
+        return "duplicate"
+    quality = _dict(row.get("quality"))
+    validation = _dict(row.get("validation"))
+    if quality.get("needs_review") or validation.get("needs_review"):
+        return "needs_review"
+    transaction = _dict(row.get("transaction"))
+    if transaction:
+        return "transaction"
+    return "raw"
 
 
 def _write_transactions(sheet: Any, rows: list[dict[str, Any]]) -> None:
@@ -364,6 +432,10 @@ def _excel_value(value: Any) -> Any:
 
 def _dict(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _list(value: Any) -> list[Any]:
+    return value if isinstance(value, list) else []
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:

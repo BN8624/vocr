@@ -137,6 +137,7 @@ def run_sample(root: Path, pdf_path: Path, output_root: Path, dry_run: bool, for
     chunk_count = int(summary.get("chunk_count", 0) or 0)
     review_html = Path(str(summary.get("review_html", output_dir / "review.html")))
     excel_path = Path(str(summary.get("excel_path", output_dir / "result.xlsx")))
+    excel_check = inspect_excel(excel_path)
     checks = [
         completed.returncode == 0,
         page_count == expected_pages,
@@ -144,6 +145,11 @@ def run_sample(root: Path, pdf_path: Path, output_root: Path, dry_run: bool, for
         body_chunk_count > 0,
         total_chunk_count == expected_pages,
         review_html.exists(),
+        excel_check["exists"],
+        excel_check["original_table_first"],
+        excel_check["original_table_non_empty"],
+        excel_check["normalized_sheet_exists"],
+        excel_check["checksum_sheet_exists"],
     ]
     status = "PASS" if all(checks) else "FAIL"
 
@@ -165,6 +171,11 @@ def run_sample(root: Path, pdf_path: Path, output_root: Path, dry_run: bool, for
         "source_total_candidate_count": len(checksum.get("source_total_candidates", [])) if isinstance(checksum, dict) else 0,
         "review_html": str(review_html),
         "excel_exists": excel_path.exists(),
+        "excel_sheets": excel_check["sheet_names"],
+        "original_table_first": excel_check["original_table_first"],
+        "original_table_non_empty": excel_check["original_table_non_empty"],
+        "normalized_sheet_exists": excel_check["normalized_sheet_exists"],
+        "checksum_sheet_exists": excel_check["checksum_sheet_exists"],
         "returncode": completed.returncode,
         "status": status,
         "failure_reasons": failure_reasons(
@@ -175,6 +186,7 @@ def run_sample(root: Path, pdf_path: Path, output_root: Path, dry_run: bool, for
             body_chunk_count,
             total_chunk_count,
             review_html.exists(),
+            excel_check,
         ),
         "stderr_tail": tail(completed.stderr),
     }
@@ -188,6 +200,7 @@ def failure_reasons(
     body_chunk_count: int,
     total_chunk_count: int,
     review_exists: bool,
+    excel_check: dict[str, Any],
 ) -> list[str]:
     reasons = []
     if returncode != 0:
@@ -202,7 +215,49 @@ def failure_reasons(
         reasons.append(f"expected {expected_pages} total chunks, got {total_chunk_count}")
     if not review_exists:
         reasons.append("review.html missing")
+    if not excel_check["exists"]:
+        reasons.append("result.xlsx missing")
+    if not excel_check["original_table_first"]:
+        reasons.append("원본표 is not the first sheet")
+    if not excel_check["original_table_non_empty"]:
+        reasons.append("원본표 is empty")
+    if not excel_check["normalized_sheet_exists"]:
+        reasons.append("전체명세_정규화 sheet missing")
+    if not excel_check["checksum_sheet_exists"]:
+        reasons.append("검산 sheet missing")
     return reasons
+
+
+def inspect_excel(path: Path) -> dict[str, Any]:
+    result = {
+        "exists": path.exists(),
+        "sheet_names": [],
+        "original_table_first": False,
+        "original_table_non_empty": False,
+        "normalized_sheet_exists": False,
+        "checksum_sheet_exists": False,
+    }
+    if not path.exists():
+        return result
+    try:
+        from openpyxl import load_workbook
+    except ImportError:
+        return result
+    try:
+        workbook = load_workbook(path, read_only=True, data_only=True)
+    except Exception:
+        return result
+    try:
+        result["sheet_names"] = list(workbook.sheetnames)
+        result["original_table_first"] = bool(workbook.sheetnames and workbook.sheetnames[0] == "원본표")
+        result["normalized_sheet_exists"] = "전체명세_정규화" in workbook.sheetnames
+        result["checksum_sheet_exists"] = "검산" in workbook.sheetnames
+        if "원본표" in workbook.sheetnames:
+            sheet = workbook["원본표"]
+            result["original_table_non_empty"] = sheet.max_row > 1 and sheet.max_column > 4
+    finally:
+        workbook.close()
+    return result
 
 
 def manifest_count(path: Path) -> int:

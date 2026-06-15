@@ -391,3 +391,14 @@
 - 기존 normalized sheet 이름은 `전체명세_정규화`로 바꾼다. 이 시트는 검산과 자동 품질 확인을 위한 보조 자료다.
 - 구현의 첫 대상은 `src/excel_exporter.py`다. `main.py`가 이미 넘기는 `source_rows_path`를 실제 `원본표` 작성에 사용해야 한다.
 - `app.py`가 사용자의 실제 진입점이므로 GUI로 만든 `result.xlsx`도 동일한 시트 순서와 원본표 계약을 만족해야 한다.
+
+## 2026-06-15 원본표 Excel 구현 완료
+
+- `src/excel_exporter.py`에서 `source_rows_path`를 읽어 `원본표`를 첫 번째 시트로 만든다.
+- `원본표`는 `page`, `chunk_id`, `local_row_index`, `row_type` 추적 컬럼 뒤에 raw header 합집합을 붙인다.
+- header보다 cells가 많은 행은 남는 값을 `extra_col_N`에 보존한다.
+- header보다 cells가 적은 행은 비워 둔다. openpyxl로 다시 읽으면 빈 문자열은 `None`으로 보일 수 있지만 Excel 셀은 빈칸이다.
+- 기존 `전체명세`는 `전체명세_정규화`로 이름을 바꿨고, `검산`, `원본셀`, `추가필드`, `확인필요`는 유지했다.
+- `tests/test_original_table_export.py`를 추가해 시트 순서, raw.header, raw.cells, extra_col_N, 빈칸 보존을 검증한다.
+- `tests/regression_samples.py`는 이제 `result.xlsx` 존재만 보지 않고 `원본표` 첫 시트, 비어 있지 않음, `전체명세_정규화`, `검산` 존재를 PASS 조건으로 검사한다.
+- `output/acceptance_hyundai_8_gemma` 캐시 dry-run으로 실제 `main.py` 경로를 확인했다. 생성된 workbook은 `원본표`, `전체명세_정규화`, `검산`, `원본셀`, `추가필드`, `확인필요` 순서이고 `원본표`는 314행 14열이다.

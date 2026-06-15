@@ -18,8 +18,8 @@ NEEDS_VERIFICATION
 | Local acceptance sample runner | PARTIAL | `tests/regression_samples.py` | Runs local samples and writes report | Must become strict staged acceptance runner with automation metrics |
 | Sample manifest | PARTIAL | `tools/build_sample_manifest.py`, `tests/test_sample_manifest.py` | Standardizes issuer/sample discovery | Writes manifest, but canonical `samples/sample_manifest.json` workflow is not adopted yet |
 | Vision cache readiness check | DONE | `tools/check_vision_cache.py`, `tests/test_vision_cache_check.py` | Confirms whether one real API run can be reused for cache-only downstream tests | `output/acceptance_hyundai_1` now has 4/4 successful cached Vision JSON files |
-| Excel export | PARTIAL | `src/excel_exporter.py`, `result.xlsx` outputs | Produces workbook for converted rows | Must make `원본표` the first non-empty sheet and move normalized rows to `전체명세_정규화` |
-| Raw cell preservation | DONE | `rows_raw.jsonl`, `rows_merged.jsonl`, `원본셀` sheet | Audit trail and source for `원본표` | Must be used as the main Excel table source, not only as debug evidence |
+| Excel export | DONE | `src/excel_exporter.py`, `tests/test_original_table_export.py`, `output/acceptance_hyundai_8_gemma/result.xlsx` | Produces `원본표` first and keeps normalized/checksum support sheets | Needs full 9-sample acceptance after fresh runs |
+| Raw cell preservation | DONE | `rows_raw.jsonl`, `rows_merged.jsonl`, `원본표`, `원본셀` sheet | Main Excel table source and audit trail | Needs full 9-sample acceptance after fresh runs |
 | Duplicate representative selection | PARTIAL | `src/row_merger.py`, duplicate tests | Reduces inflated totals from overlap chunks | Needs new duplicate statuses from `newplan.md` |
 | Column mapping profiles | PARTIAL | `src/profile_store.py`, `profile_manager.py`, `profiles/README.md` | Reuses recurring layout mappings | Stable issuer promotion criteria not implemented |
 | Validation and column contamination checks | PARTIAL | `src/validator.py`, validation fixture tests | Catches swapped/contaminated columns | Needs row automation status and rates |
@@ -35,11 +35,10 @@ NEEDS_VERIFICATION
 ## Current P0 Focus
 
 ```text
-1. Split the product pipeline from the checksum pipeline in the Excel output contract.
-2. Add `원본표` as the first sheet, sourced from `rows_merged.jsonl` raw headers and cells.
-3. Rename the old normalized `전체명세` sheet to `전체명세_정규화`.
-4. Keep `검산`, `원본셀`, `추가필드`, and `확인필요` as support sheets.
-5. Update exporter tests and regression PASS criteria so a workbook without `원본표` fails.
+1. Run the strengthened regression runner across the staged samples.
+2. Inspect any `원본표` rows where raw.header/raw.cells are visibly wrong.
+3. Fix upstream Vision extraction or row merge causes only when image/raw evidence supports it.
+4. Keep checksum/normalization as QA, not as the main Excel result.
 ```
 
 ## 2026-06-15 Latest Product Goal Correction
@@ -52,6 +51,18 @@ result.xlsx must open on `원본표`.
 The normalized transaction sheet is renamed from `전체명세` to `전체명세_정규화`.
 `src/excel_exporter.py` is the first implementation target.
 `app.py` output must follow the same workbook contract because it is the user entry point.
+```
+
+## 2026-06-15 Latest Original Table Implementation
+
+```text
+`src/excel_exporter.py` now creates `원본표` first from `source_rows_path`.
+The old `전체명세` sheet is now `전체명세_정규화`.
+Raw cells longer than their header are preserved as `extra_col_N`.
+Raw cells shorter than their header are left blank.
+`tests/test_original_table_export.py` covers the new workbook contract.
+`tests/regression_samples.py` now fails samples without first-sheet non-empty `원본표`.
+Cache dry-run for `output/acceptance_hyundai_8_gemma` produced a workbook with `원본표` first, 314 rows, and 14 columns.
 ```
 
 ## 2026-06-14 Handoff
