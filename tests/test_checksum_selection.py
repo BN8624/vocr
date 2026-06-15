@@ -233,7 +233,38 @@ def main() -> int:
         assert kb.checksum_status == "auto_selected_total_matched"
         assert kb.summary["checksum"]["matched_total"]["label"] == "KB 페이지별 이번달 결제금액 합산"
         assert kb.summary["checksum"]["matched_total"]["pages"] == [1, 2]
-        assert kb.summary["checksum"]["matched_field"] == "amount_total"
+        assert kb.summary["checksum"]["matched_field"] == "billing_amount_total"
+
+        _write_jsonl(transactions_path, [_kb_transaction(amount=1800, billing_amount=686610)])
+        kb_leak = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=786610,
+                billing_amount_total=688410,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("KB 이번달 결제금액", 100000, page_number=1, chunk_id="page_001_totals_01"),
+                _vision_total("합계 7 건 이번달 결제금액", 686610, page_number=2, chunk_id="page_002_chunk_01"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=2,
+        )
+        assert kb_leak is not None
+        assert kb_leak.checksum_status == "no_user_total_selected"
+        assert all(
+            match["field"] != "amount_total"
+            for match in kb_leak.summary["checksum"]["auto_match_candidates"]
+        )
+        leak_rows = _read_jsonl(kb_leak.validated_transactions_path)
+        assert leak_rows[0]["validation"]["needs_review"] is True
+        assert "kb_billing_amount_equals_page_total" in [
+            issue["code"] for issue in leak_rows[0]["validation"]["issues"]
+        ]
+        _write_jsonl(transactions_path, [_transaction(10000)])
 
         revolving = build_validation(
             normalization_output=NormalizationOutput(
@@ -314,6 +345,49 @@ def _transaction(
         },
         "quality": {"needs_review": False, "review_reason": ""},
         "extra_fields": extra_fields or {},
+    }
+
+
+def _kb_transaction(amount: int, billing_amount: int) -> dict[str, object]:
+    return {
+        "source": {
+            "file": "kb.pdf",
+            "page": 2,
+            "chunk_id": "page_002_chunk_01",
+            "local_row_index": 7,
+        },
+        "raw": {
+            "header": [
+                "이용카드",
+                "이용일",
+                "이용 가맹점",
+                "가맹점 소재지",
+                "이용금액",
+                "현지금액",
+                "이번달 결제금액",
+                "적립예정포인트리",
+            ],
+            "cells": [
+                "마스터2870",
+                "0905",
+                "우정사업본부(우체국)",
+                "세종 도움5로 19",
+                f"{amount:,}",
+                "",
+                f"{billing_amount:,}",
+                "",
+            ],
+        },
+        "transaction": {
+            "date": "09-05",
+            "card_label": "마스터2870",
+            "merchant": "우정사업본부(우체국)",
+            "amount": amount,
+            "billing_amount": billing_amount,
+            "transaction_type": "",
+        },
+        "quality": {"needs_review": False, "review_reason": ""},
+        "extra_fields": {},
     }
 
 

@@ -122,6 +122,17 @@ def main() -> int:
     years = _infer_years_for_rows(year_rows, [0], period)
     assert years[(0, 0)] == 2024
     assert years[(1, 0)] == 2025
+    extended_year_rows = [
+        _source_row(1, 1, ["date"], ["1211"]),
+        _source_row(1, 2, ["date"], ["0102"]),
+        _source_row(2, 1, ["date"], ["0109"]),
+        _source_row(13, 1, ["date"], ["1209"]),
+    ]
+    extended_years = _infer_years_for_rows(extended_year_rows, [0], period)
+    assert extended_years[(0, 0)] == 2024
+    assert extended_years[(1, 0)] == 2025
+    assert extended_years[(2, 0)] == 2025
+    assert extended_years[(3, 0)] == 2025
 
     print("original table export test passed")
     return 0

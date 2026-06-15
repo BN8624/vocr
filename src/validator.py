@@ -40,6 +40,7 @@ def build_validation(
     rows = _read_jsonl(normalization_output.transactions_path)
     source_totals = _source_total_candidates(vision_results or [])
     row_issues = _validate_rows(rows)
+    _add_kb_total_leak_issues(row_issues, rows, source_totals)
     column_quality = _column_quality(rows)
     checksum = _checksum_summary(
         amount_total=normalization_output.amount_total,
@@ -187,6 +188,47 @@ def _validate_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]
             )
 
     return dict(issues)
+
+
+def _add_kb_total_leak_issues(
+    row_issues: dict[str, list[dict[str, str]]],
+    rows: list[dict[str, Any]],
+    source_totals: list[dict[str, Any]],
+) -> None:
+    totals_by_page: dict[int, set[int]] = defaultdict(set)
+    for candidate in source_totals:
+        page = int(candidate.get("page", 0) or 0)
+        amount = candidate.get("amount")
+        if not page or not isinstance(amount, int):
+            continue
+        if _looks_like_kb_monthly_payment_label(str(candidate.get("label", ""))):
+            totals_by_page[page].add(amount)
+
+    if not totals_by_page:
+        return
+
+    for row in rows:
+        raw = row.get("raw", {}) if isinstance(row.get("raw"), dict) else {}
+        header = [str(value) for value in raw.get("header", [])]
+        if not _is_kb_monthly_payment_row_header(header):
+            continue
+        source = row.get("source", {}) if isinstance(row.get("source"), dict) else {}
+        page = int(source.get("page", 0) or 0)
+        transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+        amount = transaction.get("amount")
+        billing_amount = transaction.get("billing_amount")
+        if (
+            isinstance(amount, int)
+            and isinstance(billing_amount, int)
+            and amount != billing_amount
+            and billing_amount in totals_by_page.get(page, set())
+        ):
+            row_issues.setdefault(_row_key(row), []).append(
+                _issue(
+                    "kb_billing_amount_equals_page_total",
+                    "KB 거래행의 이번달 결제금액이 같은 페이지 합계값과 같습니다. 합계행 금액이 거래행으로 유입됐을 가능성이 있습니다.",
+                )
+            )
 
 
 def _stable_cell_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
@@ -586,6 +628,8 @@ def _checksum_summary(
         ("amount_total", amount_total),
         ("billing_amount_total", billing_amount_total),
     ] + [(str(target["field"]), int(target["amount"])) for target in basis_totals]
+    if _is_kb_monthly_payment_aggregate(selected_total):
+        targets = [(field, value) for field, value in targets if _checksum_candidate_allows_field(selected_total, field)]
     for total_name, total_value in targets:
         if selected_amount == total_value:
             return {
@@ -938,6 +982,8 @@ def _auto_match_candidates(
         if total_value <= 0:
             continue
         for candidate in candidates:
+            if not _checksum_candidate_allows_field(candidate, field):
+                continue
             if int(candidate.get("amount", 0)) == total_value:
                 matches.append(
                     {
@@ -958,6 +1004,8 @@ def _auto_match_candidates(
             if total_value <= 0:
                 continue
             for candidate in candidates:
+                if not _checksum_candidate_allows_field(candidate, field):
+                    continue
                 if int(candidate.get("amount", 0)) == total_value:
                     matches.append(
                         {
@@ -973,6 +1021,8 @@ def _auto_match_candidates(
             if total_value <= 0:
                 continue
             for candidate in candidates:
+                if not _checksum_candidate_allows_field(candidate, field):
+                    continue
                 candidate_amount = int(candidate.get("amount", 0))
                 difference = candidate_amount - total_value
                 if 0 < difference <= adjustments:
@@ -1005,6 +1055,40 @@ def _auto_match_candidates(
                 }
             )
     return sorted(matches, key=lambda item: int(item.get("score", 0)), reverse=True)
+
+
+def _checksum_candidate_allows_field(candidate: dict[str, Any], field: str) -> bool:
+    if _is_kb_monthly_payment_aggregate(candidate):
+        return field.startswith("billing_amount_total")
+    return True
+
+
+def _is_kb_monthly_payment_aggregate(candidate: dict[str, Any]) -> bool:
+    label = str(candidate.get("label", ""))
+    return label.startswith("KB ") and "components" in candidate
+
+
+def _looks_like_kb_monthly_payment_label(label: str) -> bool:
+    normalized = re.sub(r"\s+", "", label)
+    if "\ud3ec\uc778\ud2b8\ub9ac" in normalized:
+        return False
+    return (
+        "\uc774\ubc88\ub2ec" in normalized and "\uacb0\uc81c\uae08\uc561" in normalized
+    ) or "\ud569\uacc4" in normalized or "\uc18c\uacc4" in normalized
+
+
+def _is_kb_monthly_payment_row_header(header: list[str]) -> bool:
+    normalized = [_normalize_korean_token(value) for value in header]
+    joined = "".join(normalized)
+    return (
+        "\uc774\uc6a9\uce74\ub4dc" in joined
+        and "\uc774\uc6a9\uae08\uc561" in joined
+        and "\uc774\ubc88\ub2ec\uacb0\uc81c\uae08\uc561" in joined
+    )
+
+
+def _normalize_korean_token(value: str) -> str:
+    return re.sub(r"\s+", "", value)
 
 
 def _is_revolving_statement(source_totals: list[dict[str, Any]]) -> bool:

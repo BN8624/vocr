@@ -566,25 +566,7 @@ def _infer_years_for_rows(
     inferred: dict[tuple[int, int], int] = {}
     if not date_column_indexes:
         return inferred
-    if statement_period:
-        start, end = statement_period
-        for row_index, row in enumerate(rows):
-            cells = _list(_dict(row.get("raw")).get("cells"))
-            for column_index in date_column_indexes:
-                value = cells[column_index] if column_index < len(cells) else ""
-                month_day = _parse_month_day(str(value or ""))
-                if not month_day:
-                    continue
-                month, day = month_day
-                for year in (start.year, end.year):
-                    candidate = _safe_date(year, month, day)
-                    if candidate and start <= candidate <= end:
-                        inferred[(row_index, column_index)] = year
-                        break
-        if inferred:
-            return inferred
-
-    explicit_year = _first_explicit_year(rows, date_column_indexes)
+    explicit_year = statement_period[0].year if statement_period else _first_explicit_year(rows, date_column_indexes)
     parsed_months = _date_tokens(rows, date_column_indexes)
     saw_wrap = any(
         left[2] >= 10 and right[2] <= 2
@@ -592,6 +574,12 @@ def _infer_years_for_rows(
     )
     base_year = explicit_year if explicit_year is not None else date.today().year
     current_year = base_year - 1 if explicit_year is None and saw_wrap else base_year
+    if statement_period and parsed_months:
+        start, end = statement_period
+        first_month, first_day = parsed_months[0][2], parsed_months[0][3]
+        end_year_candidate = _safe_date(end.year, first_month, first_day)
+        if end_year_candidate and start <= end_year_candidate <= end:
+            current_year = end.year
     previous_month: int | None = None
     for row_index, row in enumerate(rows):
         cells = _list(_dict(row.get("raw")).get("cells"))
