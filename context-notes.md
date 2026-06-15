@@ -402,3 +402,12 @@
 - `tests/test_original_table_export.py`를 추가해 시트 순서, raw.header, raw.cells, extra_col_N, 빈칸 보존을 검증한다.
 - `tests/regression_samples.py`는 이제 `result.xlsx` 존재만 보지 않고 `원본표` 첫 시트, 비어 있지 않음, `전체명세_정규화`, `검산` 존재를 PASS 조건으로 검사한다.
 - `output/acceptance_hyundai_8_gemma` 캐시 dry-run으로 실제 `main.py` 경로를 확인했다. 생성된 workbook은 `원본표`, `전체명세_정규화`, `검산`, `원본셀`, `추가필드`, `확인필요` 순서이고 `원본표`는 314행 14열이다.
+
+## 2026-06-15 원본표 정확도 측정 기준
+
+- 정답 OCR 없이 즉시 자동화할 수 있는 1차 정확도 지표는 `rows_merged.jsonl` 대비 `원본표` 반영률이다.
+- row coverage는 `rows_merged.jsonl`의 원본 행 수와 Excel `원본표` 데이터 행 수를 비교한다.
+- cell coverage는 `rows_merged.jsonl`의 non-empty `raw.cells` 수와 Excel `원본표`의 non-empty 원본 컬럼 cell 수를 비교한다.
+- 이 지표는 PDF 육안 정답률이 아니라 “AI가 읽어 병합한 원본 행/셀을 Excel에서 잃지 않았는지”를 측정한다.
+- `tests/regression_samples.py`는 이제 row coverage 또는 cell coverage가 부족하면 PASS하지 않는다.
+- 기존 `output/acceptance_hyundai_8_gemma` 산출물은 source row 313개 대비 원본표 row 313개, source non-empty cell 2063개 대비 원본표 non-empty cell 2063개로 coverage 100%다.

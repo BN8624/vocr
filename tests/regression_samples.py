@@ -131,13 +131,15 @@ def run_sample(root: Path, pdf_path: Path, output_root: Path, dry_run: bool, for
     checksum = validation_summary.get("checksum", {}) if isinstance(validation_summary.get("checksum"), dict) else {}
     normalization = read_json_object(output_dir / "merged" / "normalization_summary.json")
     merge_summary = read_json_object(output_dir / "merged" / "merge_summary.json")
+    source_rows_path = output_dir / "merged" / "rows_merged.jsonl"
+    original_source = inspect_original_source(source_rows_path)
 
     expected_pages = expected_page_count(pdf_path)
     page_count = int(summary.get("page_count", 0) or 0)
     chunk_count = int(summary.get("chunk_count", 0) or 0)
     review_html = Path(str(summary.get("review_html", output_dir / "review.html")))
     excel_path = Path(str(summary.get("excel_path", output_dir / "result.xlsx")))
-    excel_check = inspect_excel(excel_path)
+    excel_check = inspect_excel(excel_path, original_source)
     checks = [
         completed.returncode == 0,
         page_count == expected_pages,
@@ -148,6 +150,8 @@ def run_sample(root: Path, pdf_path: Path, output_root: Path, dry_run: bool, for
         excel_check["exists"],
         excel_check["original_table_first"],
         excel_check["original_table_non_empty"],
+        excel_check["original_row_coverage_ok"],
+        excel_check["original_cell_coverage_ok"],
         excel_check["normalized_sheet_exists"],
         excel_check["checksum_sheet_exists"],
     ]
@@ -174,6 +178,15 @@ def run_sample(root: Path, pdf_path: Path, output_root: Path, dry_run: bool, for
         "excel_sheets": excel_check["sheet_names"],
         "original_table_first": excel_check["original_table_first"],
         "original_table_non_empty": excel_check["original_table_non_empty"],
+        "original_source_row_count": original_source["row_count"],
+        "original_source_nonblank_cell_count": original_source["nonblank_cell_count"],
+        "original_table_row_count": excel_check["original_table_row_count"],
+        "original_table_column_count": excel_check["original_table_column_count"],
+        "original_table_nonblank_cell_count": excel_check["original_table_nonblank_cell_count"],
+        "original_row_coverage_rate": excel_check["original_row_coverage_rate"],
+        "original_cell_coverage_rate": excel_check["original_cell_coverage_rate"],
+        "original_row_coverage_ok": excel_check["original_row_coverage_ok"],
+        "original_cell_coverage_ok": excel_check["original_cell_coverage_ok"],
         "normalized_sheet_exists": excel_check["normalized_sheet_exists"],
         "checksum_sheet_exists": excel_check["checksum_sheet_exists"],
         "returncode": completed.returncode,
@@ -221,6 +234,16 @@ def failure_reasons(
         reasons.append("원본표 is not the first sheet")
     if not excel_check["original_table_non_empty"]:
         reasons.append("원본표 is empty")
+    if not excel_check["original_row_coverage_ok"]:
+        reasons.append(
+            "원본표 row coverage failed "
+            f"({excel_check['original_table_row_count']}/{excel_check['source_row_count']})"
+        )
+    if not excel_check["original_cell_coverage_ok"]:
+        reasons.append(
+            "원본표 cell coverage failed "
+            f"({excel_check['original_table_nonblank_cell_count']}/{excel_check['source_nonblank_cell_count']})"
+        )
     if not excel_check["normalized_sheet_exists"]:
         reasons.append("전체명세_정규화 sheet missing")
     if not excel_check["checksum_sheet_exists"]:
@@ -228,12 +251,22 @@ def failure_reasons(
     return reasons
 
 
-def inspect_excel(path: Path) -> dict[str, Any]:
+def inspect_excel(path: Path, original_source: dict[str, Any] | None = None) -> dict[str, Any]:
+    original_source = original_source or {"row_count": 0, "nonblank_cell_count": 0}
     result = {
         "exists": path.exists(),
         "sheet_names": [],
         "original_table_first": False,
         "original_table_non_empty": False,
+        "original_table_row_count": 0,
+        "original_table_column_count": 0,
+        "original_table_nonblank_cell_count": 0,
+        "source_row_count": int(original_source.get("row_count", 0) or 0),
+        "source_nonblank_cell_count": int(original_source.get("nonblank_cell_count", 0) or 0),
+        "original_row_coverage_rate": 0.0,
+        "original_cell_coverage_rate": 0.0,
+        "original_row_coverage_ok": False,
+        "original_cell_coverage_ok": False,
         "normalized_sheet_exists": False,
         "checksum_sheet_exists": False,
     }
@@ -254,10 +287,74 @@ def inspect_excel(path: Path) -> dict[str, Any]:
         result["checksum_sheet_exists"] = "검산" in workbook.sheetnames
         if "원본표" in workbook.sheetnames:
             sheet = workbook["원본표"]
+            result["original_table_row_count"] = max(0, sheet.max_row - 1)
+            result["original_table_column_count"] = sheet.max_column
             result["original_table_non_empty"] = sheet.max_row > 1 and sheet.max_column > 4
+            result["original_table_nonblank_cell_count"] = count_original_table_cells(sheet)
     finally:
         workbook.close()
+    result["original_row_coverage_rate"] = coverage_rate(
+        result["original_table_row_count"], result["source_row_count"]
+    )
+    result["original_cell_coverage_rate"] = coverage_rate(
+        result["original_table_nonblank_cell_count"], result["source_nonblank_cell_count"]
+    )
+    result["original_row_coverage_ok"] = result["source_row_count"] == 0 or (
+        result["original_table_row_count"] >= result["source_row_count"]
+    )
+    result["original_cell_coverage_ok"] = result["source_nonblank_cell_count"] == 0 or (
+        result["original_table_nonblank_cell_count"] >= result["source_nonblank_cell_count"]
+    )
     return result
+
+
+def inspect_original_source(path: Path) -> dict[str, Any]:
+    rows = read_jsonl(path)
+    nonblank_cell_count = 0
+    header_count = 0
+    max_cell_count = 0
+    for row in rows:
+        raw = row.get("raw", {}) if isinstance(row.get("raw"), dict) else {}
+        headers = raw.get("header", []) if isinstance(raw.get("header"), list) else []
+        cells = raw.get("cells", []) if isinstance(raw.get("cells"), list) else []
+        header_count = max(header_count, len(headers))
+        max_cell_count = max(max_cell_count, len(cells))
+        nonblank_cell_count += sum(1 for cell in cells if str(cell or "").strip())
+    return {
+        "row_count": len(rows),
+        "nonblank_cell_count": nonblank_cell_count,
+        "max_header_count": header_count,
+        "max_cell_count": max_cell_count,
+    }
+
+
+def count_original_table_cells(sheet: Any) -> int:
+    count = 0
+    for row in sheet.iter_rows(min_row=2, min_col=5, values_only=True):
+        count += sum(1 for value in row if str(value or "").strip())
+    return count
+
+
+def coverage_rate(actual: int, expected: int) -> float:
+    if expected <= 0:
+        return 1.0 if actual >= 0 else 0.0
+    return round(actual / expected, 4)
+
+
+def read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
 
 
 def manifest_count(path: Path) -> int:
@@ -289,14 +386,16 @@ def markdown_report(report: dict[str, Any], root: Path) -> str:
         f"- Pass: {report['pass_count']}",
         f"- Fail: {report['fail_count']}",
         "",
-        "| Sample | Pages | Chunks | Vision | Rows | Checksum | Status |",
-        "|---|---:|---:|---:|---:|---|---|",
+        "| Sample | Pages | Chunks | Vision | Rows | Original Table | Checksum | Status |",
+        "|---|---:|---:|---:|---:|---:|---|---|",
     ]
     for result in report["results"]:
         rows.append(
             "| {sample} | {page_count}/{expected_pages} | {chunk_count} "
             "({body_chunk_count}+{total_chunk_count}) | {vision_ok}/{vision_errors} | "
-            "{transaction_count} | {checksum_status} | {status} |".format(**result)
+            "{transaction_count} | {original_table_row_count}/{original_source_row_count} rows, "
+            "{original_table_nonblank_cell_count}/{original_source_nonblank_cell_count} cells | "
+            "{checksum_status} | {status} |".format(**result)
         )
     failures = [result for result in report["results"] if result["status"] != "PASS"]
     if failures:

@@ -285,3 +285,12 @@
 - [x] `tests/test_original_table_export.py` 추가.
 - [x] `tests/regression_samples.py` PASS 조건에 `원본표` 검증 추가.
 - [x] `app.py` 실행 결과의 `result.xlsx` 시트 순서 확인.
+
+## 2026-06-15 원본표 정확도 측정
+
+- [x] `rows_merged.jsonl` 원본 행 수와 `원본표` 데이터 행 수를 비교하는 지표 추가.
+- [x] `rows_merged.jsonl`의 non-empty raw cell 수와 `원본표` non-empty cell 수를 비교하는 지표 추가.
+- [x] row coverage와 cell coverage가 부족하면 regression PASS가 실패하도록 조건 강화.
+- [x] 회귀 리포트 markdown에 원본표 row/cell coverage 표시 추가.
+- [x] `tests/test_original_table_metrics.py` 추가.
+- [x] `output/acceptance_hyundai_8_gemma` 기존 산출물로 row/cell coverage 100% 확인.

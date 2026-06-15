@@ -38,7 +38,8 @@ NEEDS_VERIFICATION
 1. Run the strengthened regression runner across the staged samples.
 2. Inspect any `원본표` rows where raw.header/raw.cells are visibly wrong.
 3. Fix upstream Vision extraction or row merge causes only when image/raw evidence supports it.
-4. Keep checksum/normalization as QA, not as the main Excel result.
+4. Add higher-level PDF-visible accuracy checks after row/cell preservation is stable.
+5. Keep checksum/normalization as QA, not as the main Excel result.
 ```
 
 ## 2026-06-15 Latest Product Goal Correction
@@ -63,6 +64,18 @@ Raw cells shorter than their header are left blank.
 `tests/test_original_table_export.py` covers the new workbook contract.
 `tests/regression_samples.py` now fails samples without first-sheet non-empty `원본표`.
 Cache dry-run for `output/acceptance_hyundai_8_gemma` produced a workbook with `원본표` first, 314 rows, and 14 columns.
+```
+
+## 2026-06-15 Latest Original Table Metrics
+
+```text
+`tests/regression_samples.py` now reports original table row/cell coverage.
+Row coverage compares rows_merged.jsonl row count to Excel `원본표` data row count.
+Cell coverage compares non-empty raw.cells count to non-empty Excel original-table cell count.
+Samples fail regression if either coverage check is short.
+`tests/test_original_table_metrics.py` covers the metric calculation.
+Existing `output/acceptance_hyundai_8_gemma` metrics are 313/313 rows and 2063/2063 cells, both 100%.
+This is a preservation metric, not a PDF visual ground-truth OCR score.
 ```
 
 ## 2026-06-14 Handoff
