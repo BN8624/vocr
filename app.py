@@ -15,7 +15,8 @@ from review import _safe_output_name
 
 
 DEFAULT_OUTPUT_ROOT = "output/converted"
-PROCESS_IDLE_TIMEOUT_SECONDS = 480
+PROCESS_IDLE_WARNING_SECONDS = 480
+PROCESS_IDLE_TIMEOUT_SECONDS = 1800
 PROCESS_TERMINATE_GRACE_SECONDS = 10
 
 
@@ -312,6 +313,7 @@ class ConverterApp(tk.Tk):
         reader = threading.Thread(target=read_output, daemon=True)
         reader.start()
         last_activity = time.monotonic()
+        idle_warning_sent = False
         while True:
             try:
                 line = line_queue.get(timeout=1)
@@ -319,6 +321,15 @@ class ConverterApp(tk.Tk):
                 if self.current_process.poll() is not None:
                     break
                 idle_seconds = time.monotonic() - last_activity
+                if idle_seconds >= PROCESS_IDLE_WARNING_SECONDS and not idle_warning_sent:
+                    self.output_queue.put(
+                        (
+                            "log",
+                            f"{PROCESS_IDLE_WARNING_SECONDS // 60}분 동안 새 로그가 없습니다. API 응답을 계속 기다리는 중입니다.",
+                        )
+                    )
+                    self.output_queue.put(("status", "API 응답 대기 중"))
+                    idle_warning_sent = True
                 if idle_seconds >= PROCESS_IDLE_TIMEOUT_SECONDS:
                     self.output_queue.put(
                         (
@@ -336,6 +347,7 @@ class ConverterApp(tk.Tk):
             clean = line.rstrip()
             if clean:
                 last_activity = time.monotonic()
+                idle_warning_sent = False
                 self.output_queue.put(("log", clean))
                 stage = stage_for_line(clean)
                 if stage:
