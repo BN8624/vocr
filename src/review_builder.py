@@ -768,7 +768,7 @@ def _percent(value: Any) -> str:
 
 
 def _excel_block(review_path: Path, excel_output: ExcelExportOutput) -> str:
-    sheet_text = ", ".join(excel_output.sheet_names) if excel_output.sheet_names else "원본표, 전체명세_정규화, 검산, 원본셀, 추가필드, 확인필요"
+    sheet_text = ", ".join(excel_output.sheet_names) if excel_output.sheet_names else "원본표, 원본표_개발자, 전체명세_정규화, 검산, 원본셀, 추가필드, 확인필요"
     return "\n".join(
         [
             '<section id="excel" class="excel-panel workflow-panel">',

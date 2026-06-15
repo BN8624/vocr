@@ -210,3 +210,15 @@ cache 전용 실행, AI 재호출 강제, 상세 로그는 `개발자 보기`를
 진행바와 깜빡이는 현재 단계는 일반 사용자 화면에 유지한다.
 검증: python -X utf8 -m py_compile app.py, python -X utf8 tests\test_app_gui.py, developer toggle smoke.
 ```
+
+## 2026-06-15 Latest User Workbook Split
+
+```text
+result.xlsx first sheet `원본표` is now the normal-user table.
+It removes developer tracking columns and keeps the dominant transaction-table headers only.
+Dates are exported as Excel date cells with yyyy-mm-dd formatting when a date column is identified.
+Amount-like columns are exported as numeric cells with #,##0 formatting.
+Full raw preservation moved to `원본표_개발자`, followed by `전체명세_정규화`, `검산`, `원본셀`, `추가필드`, `확인필요`.
+Excel tables are created only when a sheet has data rows, and table names are ASCII-safe to avoid Excel repair warnings.
+KB cache dry-run verified `원본표` headers, 2024-12/2025-01 dates from statement-period OCR, numeric amount cells, and 100% raw preservation in `원본표_개발자`.
+```

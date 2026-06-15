@@ -65,7 +65,7 @@ def main() -> int:
         assert output.workbook_path.exists()
         workbook = load_workbook(output.workbook_path, read_only=True)
         try:
-            assert workbook.sheetnames == ["원본표", "전체명세_정규화", "검산", "원본셀", "추가필드", "확인필요"]
+            assert workbook.sheetnames == ["원본표", "원본표_개발자", "전체명세_정규화", "검산", "원본셀", "추가필드", "확인필요"]
             review_sheet = workbook["확인필요"]
             values = [cell.value for cell in next(review_sheet.iter_rows(min_row=2, max_row=2))]
             assert '{"long_text_rate": 0.5, "unique_count": 2}' in values

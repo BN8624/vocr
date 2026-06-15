@@ -287,10 +287,13 @@ def inspect_excel(path: Path, original_source: dict[str, Any] | None = None) -> 
         result["checksum_sheet_exists"] = "검산" in workbook.sheetnames
         if "원본표" in workbook.sheetnames:
             sheet = workbook["원본표"]
+            result["original_table_non_empty"] = sheet.max_row > 1 and sheet.max_column > 0
+        preservation_sheet_name = "원본표_개발자" if "원본표_개발자" in workbook.sheetnames else "원본표"
+        if preservation_sheet_name in workbook.sheetnames:
+            sheet = workbook[preservation_sheet_name]
             result["original_table_row_count"] = max(0, sheet.max_row - 1)
             result["original_table_column_count"] = sheet.max_column
-            result["original_table_non_empty"] = sheet.max_row > 1 and sheet.max_column > 4
-            result["original_table_nonblank_cell_count"] = count_original_table_cells(sheet)
+            result["original_table_nonblank_cell_count"] = count_original_table_cells(sheet, min_col=5 if preservation_sheet_name == "원본표_개발자" else 1)
     finally:
         workbook.close()
     result["original_row_coverage_rate"] = coverage_rate(
@@ -328,9 +331,9 @@ def inspect_original_source(path: Path) -> dict[str, Any]:
     }
 
 
-def count_original_table_cells(sheet: Any) -> int:
+def count_original_table_cells(sheet: Any, min_col: int = 1) -> int:
     count = 0
-    for row in sheet.iter_rows(min_row=2, min_col=5, values_only=True):
+    for row in sheet.iter_rows(min_row=2, min_col=min_col, values_only=True):
         count += sum(1 for value in row if str(value or "").strip())
     return count
 

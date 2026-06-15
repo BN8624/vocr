@@ -68,6 +68,7 @@ The remaining local PDFs are useful for staged debugging and regression, but the
 
 ```text
 원본표
+원본표_개발자
 전체명세_정규화
 검산
 원본셀
@@ -75,9 +76,11 @@ The remaining local PDFs are useful for staged debugging and regression, but the
 확인필요
 ```
 
-`원본표` is the main user-facing sheet. It must be first and non-empty. It is built from `rows_merged.jsonl` first, then `rows_raw.jsonl` if merged rows are unavailable.
+`원본표` is the main user-facing sheet. It must be first and non-empty. It uses the dominant visible transaction-table header only, without developer tracking columns.
 
-`원본표` uses `raw.header` and `raw.cells` instead of collapsing the data into `date`, `card_label`, `merchant`, `amount`, and `billing_amount`. Tracking columns are prefixed before the visible PDF columns:
+Dates in `원본표` are written as Excel date cells formatted as `yyyy-mm-dd` when a date column can be identified. Amount-like columns are written as numeric cells formatted as `#,##0`.
+
+`원본표_개발자` preserves the full raw table audit view from `rows_merged.jsonl` first, then `rows_raw.jsonl` if merged rows are unavailable. Tracking columns are prefixed before the visible PDF columns:
 
 ```text
 page | chunk_id | local_row_index | row_type | <PDF header columns...>
@@ -398,6 +401,7 @@ Excel sheets:
 
 ```text
 원본표
+원본표_개발자
 전체명세_정규화
 검산
 원본셀

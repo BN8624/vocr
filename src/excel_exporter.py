@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -43,21 +45,23 @@ def export_excel(
 
     summary = validation_output.summary
     ws_original = workbook.create_sheet("원본표")
+    ws_original_dev = workbook.create_sheet("원본표_개발자")
     ws_transactions = workbook.create_sheet("전체명세_정규화")
     ws_checksum = workbook.create_sheet("검산")
     ws_raw = workbook.create_sheet("원본셀")
     ws_extra = workbook.create_sheet("추가필드")
     ws_review = workbook.create_sheet("확인필요")
 
-    _write_original_table(ws_original, raw_rows)
+    _write_user_original_table(ws_original, raw_rows, output_dir)
+    _write_developer_original_table(ws_original_dev, raw_rows)
     _write_transactions(ws_transactions, rows)
     _write_checksum(ws_checksum, summary)
     _write_raw_cells(ws_raw, raw_rows)
     _write_extra_fields(ws_extra, rows)
     review_count = _write_review_rows(ws_review, rows, summary)
 
-    for sheet in workbook.worksheets:
-        _style_sheet(sheet, get_column_letter, Table, TableStyleInfo, PatternFill, Font, Alignment)
+    for index, sheet in enumerate(workbook.worksheets, start=1):
+        _style_sheet(sheet, index, get_column_letter, Table, TableStyleInfo, PatternFill, Font, Alignment)
 
     workbook_path = output_dir / filename
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -83,7 +87,31 @@ def load_excel_export(output_dir: Path, filename: str = "result.xlsx") -> ExcelE
     )
 
 
-def _write_original_table(sheet: Any, rows: list[dict[str, Any]]) -> None:
+def _write_user_original_table(sheet: Any, rows: list[dict[str, Any]], output_dir: Path) -> None:
+    headers = _dominant_user_headers(rows)
+    sheet.append(headers)
+    if not headers:
+        return
+
+    rows_for_table = [
+        row for row in rows
+        if _is_user_row(row) and _same_header(_raw_headers(row), headers)
+    ]
+    date_column_indexes = [index for index, header in enumerate(headers) if _is_date_header(header)]
+    statement_period = _extract_statement_period(output_dir, rows_for_table)
+    date_years = _infer_years_for_rows(rows_for_table, date_column_indexes, statement_period)
+
+    for row_index, row in enumerate(rows_for_table):
+        raw = _dict(row.get("raw"))
+        cells = _list(raw.get("cells"))
+        values: list[Any] = []
+        for column_index, header in enumerate(headers):
+            cell_value = cells[column_index] if column_index < len(cells) else ""
+            values.append(_user_cell_value(header, cell_value, date_years.get((row_index, column_index))))
+        sheet.append(values)
+
+
+def _write_developer_original_table(sheet: Any, rows: list[dict[str, Any]]) -> None:
     tracking_headers = ["page", "chunk_id", "local_row_index", "row_type"]
     original_headers, max_extra_count = _collect_original_headers(rows)
     extra_headers = [f"extra_col_{index}" for index in range(1, max_extra_count + 1)]
@@ -115,6 +143,48 @@ def _write_original_table(sheet: Any, rows: list[dict[str, Any]]) -> None:
             + [value_by_header.get(header, "") for header in original_headers]
             + [extras[index] if index < len(extras) else "" for index in range(max_extra_count)]
         )
+
+
+def _dominant_user_headers(rows: list[dict[str, Any]]) -> list[str]:
+    counts: dict[tuple[str, ...], int] = {}
+    first_seen: dict[tuple[str, ...], int] = {}
+    headers_by_key: dict[tuple[str, ...], list[str]] = {}
+    for index, row in enumerate(rows):
+        if not _is_user_row(row):
+            continue
+        headers = _raw_headers(row)
+        if not headers:
+            continue
+        key = tuple(_normalize_header(header) for header in headers)
+        counts[key] = counts.get(key, 0) + 1
+        first_seen.setdefault(key, index)
+        headers_by_key.setdefault(key, headers)
+    if not counts:
+        return []
+    selected = max(counts, key=lambda key: (counts[key], -first_seen[key]))
+    return headers_by_key[selected]
+
+
+def _is_user_row(row: dict[str, Any]) -> bool:
+    row_type = str(row.get("row_type") or "").strip().lower()
+    if row_type in {"total", "section", "note"}:
+        return False
+    raw = _dict(row.get("raw"))
+    cells = _list(raw.get("cells"))
+    return any(str(cell or "").strip() for cell in cells)
+
+
+def _raw_headers(row: dict[str, Any]) -> list[str]:
+    raw = _dict(row.get("raw"))
+    return [str(value) for value in _list(raw.get("header"))]
+
+
+def _same_header(left: list[str], right: list[str]) -> bool:
+    return [_normalize_header(value) for value in left] == [_normalize_header(value) for value in right]
+
+
+def _normalize_header(value: str) -> str:
+    return re.sub(r"\s+", "", str(value or "")).strip()
 
 
 def _collect_original_headers(rows: list[dict[str, Any]]) -> tuple[list[str], int]:
@@ -358,6 +428,7 @@ def _write_review_rows(sheet: Any, rows: list[dict[str, Any]], summary: dict[str
 
 def _style_sheet(
     sheet: Any,
+    sheet_index: int,
     get_column_letter: Any,
     Table: Any,
     TableStyleInfo: Any,
@@ -396,10 +467,12 @@ def _style_sheet(
         for cell in row:
             if isinstance(cell.value, int):
                 cell.number_format = '#,##0'
+            elif isinstance(cell.value, date):
+                cell.number_format = 'yyyy-mm-dd'
 
-    if max_row >= 1 and max_col >= 1:
+    if max_row >= 2 and max_col >= 1:
         table_ref = f"A1:{get_column_letter(max_col)}{max_row}"
-        table_name = _safe_table_name(sheet.title)
+        table_name = _safe_table_name(sheet_index)
         table = Table(displayName=table_name, ref=table_ref)
         table.tableStyleInfo = TableStyleInfo(
             name="TableStyleMedium2",
@@ -411,11 +484,217 @@ def _style_sheet(
         sheet.add_table(table)
 
 
-def _safe_table_name(sheet_name: str) -> str:
-    letters = "".join(ch for ch in sheet_name if ch.isalnum())
-    if not letters:
-        letters = "Sheet"
-    return f"{letters}Table"
+def _safe_table_name(sheet_index: int) -> str:
+    return f"Table{sheet_index}"
+
+
+def _user_cell_value(header: str, value: Any, inferred_year: int | None = None) -> Any:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return ""
+    if _is_date_header(header):
+        parsed = _parse_date_value(text, inferred_year)
+        return parsed if parsed else text
+    if _is_amount_header(header):
+        parsed_number = _parse_number_value(text)
+        return parsed_number if parsed_number is not None else text
+    return text
+
+
+def _is_date_header(header: str) -> bool:
+    normalized = _normalize_header(header)
+    return normalized in {"이용일", "거래일", "사용일", "승인일", "매출일", "date"}
+
+
+def _is_amount_header(header: str) -> bool:
+    normalized = _normalize_header(header)
+    amount_keywords = ("금액", "원금", "포인트", "point", "amount", "합계")
+    if "현지" in normalized and "금액" in normalized:
+        return True
+    return any(keyword in normalized.lower() for keyword in amount_keywords)
+
+
+def _parse_number_value(value: str) -> int | float | None:
+    text = value.strip().replace(",", "")
+    if not text:
+        return None
+    if text.startswith("(") and text.endswith(")"):
+        text = f"-{text[1:-1]}"
+    if text.endswith("-"):
+        text = f"-{text[:-1]}"
+    text = re.sub(r"[^0-9.\-]", "", text)
+    if not text or text in {"-", ".", "-."}:
+        return None
+    try:
+        number = float(text) if "." in text else int(text)
+    except ValueError:
+        return None
+    if isinstance(number, float) and number.is_integer():
+        return int(number)
+    return number
+
+
+def _parse_date_value(value: str, inferred_year: int | None = None) -> date | None:
+    text = value.strip()
+    match = re.fullmatch(r"(\d{4})[.\-/년\s]*(\d{1,2})[.\-/월\s]*(\d{1,2})일?", text)
+    if match:
+        return _safe_date(int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    match = re.fullmatch(r"(\d{2})[.\-/](\d{1,2})[.\-/](\d{1,2})", text)
+    if match:
+        return _safe_date(2000 + int(match.group(1)), int(match.group(2)), int(match.group(3)))
+    match = re.fullmatch(r"(\d{1,2})[.\-/](\d{1,2})", text)
+    if match and inferred_year:
+        return _safe_date(inferred_year, int(match.group(1)), int(match.group(2)))
+    match = re.fullmatch(r"(\d{2})(\d{2})", text)
+    if match and inferred_year:
+        return _safe_date(inferred_year, int(match.group(1)), int(match.group(2)))
+    return None
+
+
+def _safe_date(year: int, month: int, day: int) -> date | None:
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def _infer_years_for_rows(
+    rows: list[dict[str, Any]],
+    date_column_indexes: list[int],
+    statement_period: tuple[date, date] | None = None,
+) -> dict[tuple[int, int], int]:
+    inferred: dict[tuple[int, int], int] = {}
+    if not date_column_indexes:
+        return inferred
+    if statement_period:
+        start, end = statement_period
+        for row_index, row in enumerate(rows):
+            cells = _list(_dict(row.get("raw")).get("cells"))
+            for column_index in date_column_indexes:
+                value = cells[column_index] if column_index < len(cells) else ""
+                month_day = _parse_month_day(str(value or ""))
+                if not month_day:
+                    continue
+                month, day = month_day
+                for year in (start.year, end.year):
+                    candidate = _safe_date(year, month, day)
+                    if candidate and start <= candidate <= end:
+                        inferred[(row_index, column_index)] = year
+                        break
+        if inferred:
+            return inferred
+
+    explicit_year = _first_explicit_year(rows, date_column_indexes)
+    parsed_months = _date_tokens(rows, date_column_indexes)
+    saw_wrap = any(
+        left[2] >= 10 and right[2] <= 2
+        for left, right in zip(parsed_months, parsed_months[1:])
+    )
+    base_year = explicit_year if explicit_year is not None else date.today().year
+    current_year = base_year - 1 if explicit_year is None and saw_wrap else base_year
+    previous_month: int | None = None
+    for row_index, row in enumerate(rows):
+        cells = _list(_dict(row.get("raw")).get("cells"))
+        for column_index in date_column_indexes:
+            value = cells[column_index] if column_index < len(cells) else ""
+            month_day = _parse_month_day(str(value or ""))
+            if not month_day:
+                continue
+            month, _day = month_day
+            if previous_month is not None and previous_month >= 10 and month <= 2:
+                current_year += 1
+            inferred[(row_index, column_index)] = current_year
+            previous_month = month
+    return inferred
+
+
+def _date_tokens(rows: list[dict[str, Any]], date_column_indexes: list[int]) -> list[tuple[int, int, int, int]]:
+    tokens: list[tuple[int, int, int, int]] = []
+    for row_index, row in enumerate(rows):
+        cells = _list(_dict(row.get("raw")).get("cells"))
+        for column_index in date_column_indexes:
+            value = cells[column_index] if column_index < len(cells) else ""
+            month_day = _parse_month_day(str(value or ""))
+            if month_day:
+                tokens.append((row_index, column_index, month_day[0], month_day[1]))
+    return tokens
+
+
+def _first_explicit_year(rows: list[dict[str, Any]], date_column_indexes: list[int]) -> int | None:
+    for row in rows:
+        cells = _list(_dict(row.get("raw")).get("cells"))
+        for column_index in date_column_indexes:
+            value = str(cells[column_index] if column_index < len(cells) else "")
+            match = re.search(r"(\d{4})[.\-/년\s]*\d{1,2}[.\-/월\s]*\d{1,2}", value)
+            if match:
+                return int(match.group(1))
+            match = re.search(r"(\d{2})[.\-/]\d{1,2}[.\-/]\d{1,2}", value)
+            if match:
+                return 2000 + int(match.group(1))
+    return None
+
+
+def _parse_month_day(value: str) -> tuple[int, int] | None:
+    text = value.strip()
+    match = re.fullmatch(r"\d{4}[.\-/년\s]*(\d{1,2})[.\-/월\s]*(\d{1,2})일?", text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    match = re.fullmatch(r"\d{2}[.\-/](\d{1,2})[.\-/](\d{1,2})", text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    match = re.fullmatch(r"(\d{1,2})[.\-/](\d{1,2})", text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    match = re.fullmatch(r"(\d{2})(\d{2})", text)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def _extract_statement_period(output_dir: Path, rows: list[dict[str, Any]]) -> tuple[date, date] | None:
+    image_path = _first_page_image_path(output_dir, rows)
+    if not image_path or not image_path.exists():
+        return None
+    try:
+        from PIL import Image
+        import easyocr
+    except Exception:
+        return None
+    try:
+        image = Image.open(image_path)
+        width, height = image.size
+        crop = image.crop((int(width * 0.4), int(height * 0.08), int(width * 0.98), int(height * 0.24)))
+        temp_path = output_dir / "merged" / "statement_period_crop.png"
+        temp_path.parent.mkdir(parents=True, exist_ok=True)
+        crop.save(temp_path)
+        reader = easyocr.Reader(["ko", "en"], gpu=False, verbose=False)
+        text = " ".join(str(item) for item in reader.readtext(str(temp_path), detail=0))
+    except Exception:
+        return None
+    return _parse_statement_period_text(text)
+
+
+def _first_page_image_path(output_dir: Path, rows: list[dict[str, Any]]) -> Path | None:
+    for row in rows:
+        raw = _dict(row.get("raw"))
+        image_ref = str(raw.get("image_ref") or "").strip()
+        if image_ref:
+            return output_dir / image_ref
+    return None
+
+
+def _parse_statement_period_text(text: str) -> tuple[date, date] | None:
+    normalized = re.sub(r"(?<=\d),(?=\d{1,2}\b)", ".", text)
+    normalized = re.sub(r"\s+", " ", normalized)
+    matches = re.findall(r"(20\d{2})\D{0,3}(\d{1,2})\D{0,3}(\d{1,2})", normalized)
+    dates = [_safe_date(int(year), int(month), int(day)) for year, month, day in matches]
+    dates = [value for value in dates if value is not None]
+    if len(dates) < 2:
+        return None
+    start, end = dates[0], dates[1]
+    if start <= end:
+        return start, end
+    return None
 
 
 def _number_or_blank(value: Any) -> int | str:

@@ -59,6 +59,7 @@ Every representative workbook must use this sheet order:
 
 ```text
 원본표
+원본표_개발자
 전체명세_정규화
 검산
 원본셀
@@ -66,7 +67,9 @@ Every representative workbook must use this sheet order:
 확인필요
 ```
 
-The first sheet, `원본표`, is the main output. It preserves rows from `rows_merged.jsonl`, including `row_type=total` rows generated from Vision `totals`.
+The first sheet, `원본표`, is the main user output. It contains the dominant transaction-table header only, with date columns formatted as `yyyy-mm-dd` and amount-like columns stored as numeric cells.
+
+`원본표_개발자` preserves rows from `rows_merged.jsonl`, including `row_type=total` rows generated from Vision `totals`.
 
 ## Current Pass Criteria
 
@@ -74,8 +77,8 @@ The first sheet, `원본표`, is the main output. It preserves rows from `rows_m
 result.xlsx exists
 원본표 is the first sheet
 원본표 is non-empty
-rows_merged.jsonl row coverage is 100%
-rows_merged.jsonl non-empty cell coverage is 100%
+원본표_개발자 row coverage against rows_merged.jsonl is 100%
+원본표_개발자 non-empty cell coverage against rows_merged.jsonl is 100%
 전체명세_정규화 exists
 검산 exists
 validation issue rows == 0, or there is a documented exception

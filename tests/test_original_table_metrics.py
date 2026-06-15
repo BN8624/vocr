@@ -48,9 +48,13 @@ def _write_workbook(path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "원본표"
-    sheet.append(["page", "chunk_id", "local_row_index", "row_type", "이용일", "가맹점명"])
-    sheet.append([1, "page_001", 1, "raw", "01.01", "상점A"])
-    sheet.append([1, "page_001", 2, "raw", "01.02", ""])
+    sheet.append(["이용일", "가맹점명"])
+    sheet.append(["01.01", "상점A"])
+    sheet.append(["01.02", ""])
+    dev_sheet = workbook.create_sheet("원본표_개발자")
+    dev_sheet.append(["page", "chunk_id", "local_row_index", "row_type", "이용일", "가맹점명"])
+    dev_sheet.append([1, "page_001", 1, "raw", "01.01", "상점A"])
+    dev_sheet.append([1, "page_001", 2, "raw", "01.02", ""])
     workbook.create_sheet("전체명세_정규화")
     workbook.create_sheet("검산")
     workbook.save(path)

@@ -4,13 +4,14 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
+from datetime import date, datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from openpyxl import load_workbook
 
-from src.excel_exporter import export_excel
+from src.excel_exporter import _infer_years_for_rows, _parse_statement_period_text, export_excel
 from src.validator import ValidationOutput
 
 
@@ -31,8 +32,8 @@ def main() -> int:
                 _source_row(
                     page=1,
                     local_row_index=1,
-                    header=["이용일", "이용카드", "가맹점명"],
-                    cells=["01.01", "본인카드", "상점A", "남는값"],
+                    header=["이용일", "이용카드", "가맹점명", "결제원금"],
+                    cells=["01.01", "본인카드", "상점A", "1,000", "남는값"],
                 ),
                 _source_row(
                     page=1,
@@ -72,10 +73,24 @@ def main() -> int:
         assert output is not None
         workbook = load_workbook(output.workbook_path, read_only=True)
         try:
-            assert workbook.sheetnames == ["원본표", "전체명세_정규화", "검산", "원본셀", "추가필드", "확인필요"]
+            assert workbook.sheetnames == ["원본표", "원본표_개발자", "전체명세_정규화", "검산", "원본셀", "추가필드", "확인필요"]
             sheet = workbook["원본표"]
             headers = [cell.value for cell in next(sheet.iter_rows(min_row=1, max_row=1))]
-            assert headers[:8] == [
+            assert headers[:4] == ["이용일", "이용카드", "가맹점명", "결제원금"]
+            assert "page" not in headers
+            assert "extra_col_1" not in headers
+
+            first = [cell.value for cell in next(sheet.iter_rows(min_row=2, max_row=2))]
+            second = [cell.value for cell in next(sheet.iter_rows(min_row=3, max_row=3))]
+            assert _date_text(first[0]) == f"{date.today().year}-01-01"
+            assert first[1:4] == ["본인카드", "상점A", 1000]
+            assert _date_text(second[0]) == f"{date.today().year}-01-02"
+            assert second[1:4] == ["가족카드", None, None]
+            assert sheet.max_row == 3
+
+            dev_sheet = workbook["원본표_개발자"]
+            dev_headers = [cell.value for cell in next(dev_sheet.iter_rows(min_row=1, max_row=1))]
+            assert dev_headers[:8] == [
                 "page",
                 "chunk_id",
                 "local_row_index",
@@ -85,21 +100,28 @@ def main() -> int:
                 "가맹점명",
                 "결제원금",
             ]
-            assert "extra_col_1" in headers
-
-            first = [cell.value for cell in next(sheet.iter_rows(min_row=2, max_row=2))]
-            second = [cell.value for cell in next(sheet.iter_rows(min_row=3, max_row=3))]
-            assert first[4:8] == ["01.01", "본인카드", "상점A", None]
-            assert first[headers.index("extra_col_1")] == "남는값"
-            assert second[4:8] == ["01.02", "가족카드", None, None]
-            third = [cell.value for cell in next(sheet.iter_rows(min_row=4, max_row=4))]
-            assert third[3] == "total"
-            assert third[headers.index("구분")] == "총 합계 결제원금"
-            assert third[headers.index("금액텍스트")] == "3,000"
-            assert third[headers.index("금액")] == "3000"
-            assert sheet.max_row == 4
+            assert "extra_col_1" in dev_headers
+            dev_first = [cell.value for cell in next(dev_sheet.iter_rows(min_row=2, max_row=2))]
+            assert dev_first[4:8] == ["01.01", "본인카드", "상점A", "1,000"]
+            assert dev_first[dev_headers.index("extra_col_1")] == "남는값"
+            dev_third = [cell.value for cell in next(dev_sheet.iter_rows(min_row=4, max_row=4))]
+            assert dev_third[3] == "total"
+            assert dev_third[dev_headers.index("구분")] == "총 합계 결제원금"
+            assert dev_third[dev_headers.index("금액텍스트")] == "3,000"
+            assert dev_third[dev_headers.index("금액")] == "3000"
+            assert dev_sheet.max_row == 4
         finally:
             workbook.close()
+
+    period = _parse_statement_period_text("[일시불 할부] 2024.12.,09 2025.01.08")
+    assert period is not None
+    year_rows = [
+        _source_row(1, 1, ["이용일"], ["1211"]),
+        _source_row(1, 2, ["이용일"], ["0102"]),
+    ]
+    years = _infer_years_for_rows(year_rows, [0], period)
+    assert years[(0, 0)] == 2024
+    assert years[(1, 0)] == 2025
 
     print("original table export test passed")
     return 0
@@ -133,6 +155,14 @@ def _normalized_row() -> dict[str, object]:
         "validation": {"needs_review": False, "issues": []},
         "extra_fields": {},
     }
+
+
+def _date_text(value: object) -> str:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return str(value)
 
 
 def _write_jsonl(path: Path, rows: list[dict[str, object]]) -> None:
