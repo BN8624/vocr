@@ -18,8 +18,8 @@ NEEDS_VERIFICATION
 | Local acceptance sample runner | PARTIAL | `tests/regression_samples.py` | Runs local samples and writes report | Must become strict staged acceptance runner with automation metrics |
 | Sample manifest | PARTIAL | `tools/build_sample_manifest.py`, `tests/test_sample_manifest.py` | Standardizes issuer/sample discovery | Writes manifest, but canonical `samples/sample_manifest.json` workflow is not adopted yet |
 | Vision cache readiness check | DONE | `tools/check_vision_cache.py`, `tests/test_vision_cache_check.py` | Confirms whether one real API run can be reused for cache-only downstream tests | `output/acceptance_hyundai_1` now has 4/4 successful cached Vision JSON files |
-| Excel export | DONE | `src/excel_exporter.py`, `tests/test_original_table_export.py`, `output/acceptance_hyundai_8_gemma/result.xlsx` | Produces `원본표` first and keeps normalized/checksum support sheets | Needs full 9-sample acceptance after fresh runs |
-| Raw cell preservation | DONE | `rows_raw.jsonl`, `rows_merged.jsonl`, `원본표`, `원본셀` sheet | Main Excel table source and audit trail | Needs full 9-sample acceptance after fresh runs |
+| Excel export | DONE | `src/excel_exporter.py`, `tests/test_original_table_export.py`, `output/original_table_acceptance_4.json` | Produces `원본표` first and keeps normalized/checksum support sheets | Needs visual spot-check against PDFs |
+| Raw cell preservation | DONE | `rows_raw.jsonl`, `rows_merged.jsonl`, `원본표`, `원본셀` sheet | Main Excel table source and audit trail | 4 representative max-page samples have 100% row/cell preservation |
 | Duplicate representative selection | PARTIAL | `src/row_merger.py`, duplicate tests | Reduces inflated totals from overlap chunks | Needs new duplicate statuses from `newplan.md` |
 | Column mapping profiles | PARTIAL | `src/profile_store.py`, `profile_manager.py`, `profiles/README.md` | Reuses recurring layout mappings | Stable issuer promotion criteria not implemented |
 | Validation and column contamination checks | PARTIAL | `src/validator.py`, validation fixture tests | Catches swapped/contaminated columns | Needs row automation status and rates |
@@ -35,7 +35,7 @@ NEEDS_VERIFICATION
 ## Current P0 Focus
 
 ```text
-1. Run the strengthened regression runner across the staged samples.
+1. Use the 4 max-page representative samples as the practical acceptance set.
 2. Inspect any `원본표` rows where raw.header/raw.cells are visibly wrong.
 3. Fix upstream Vision extraction or row merge causes only when image/raw evidence supports it.
 4. Add higher-level PDF-visible accuracy checks after row/cell preservation is stable.
@@ -76,6 +76,19 @@ Samples fail regression if either coverage check is short.
 `tests/test_original_table_metrics.py` covers the metric calculation.
 Existing `output/acceptance_hyundai_8_gemma` metrics are 313/313 rows and 2063/2063 cells, both 100%.
 This is a preservation metric, not a PDF visual ground-truth OCR score.
+```
+
+## 2026-06-15 Latest Representative Acceptance Scope
+
+```text
+The acceptance scope is now the largest-page sample for each card company, not every split test PDF.
+Representative samples:
+- KB: kb_bzcard_13
+- 삼성카드: 삼성카드_7
+- 신한카드: 신한카드_11
+- 현대카드: 현대카드_8
+`output/original_table_acceptance_4.json` records the latest 4-sample preservation audit.
+All 4 representative samples pass original-table preservation metrics.
 ```
 
 ## 2026-06-14 Handoff

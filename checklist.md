@@ -294,3 +294,13 @@
 - [x] 회귀 리포트 markdown에 원본표 row/cell coverage 표시 추가.
 - [x] `tests/test_original_table_metrics.py` 추가.
 - [x] `output/acceptance_hyundai_8_gemma` 기존 산출물로 row/cell coverage 100% 확인.
+
+## 2026-06-15 대표 acceptance 4개 샘플 점검
+
+- [x] acceptance 범위를 카드사별 최대 페이지 샘플 4개로 정정.
+- [x] KB `kb_bzcard_13` 원본표 row/cell coverage 100% 확인.
+- [x] 삼성카드 `삼성카드_7` 원본표 row/cell coverage 100% 확인.
+- [x] 신한카드 `신한카드_11` 원본표 row/cell coverage 100% 확인.
+- [x] 현대카드 `현대카드_8` 원본표 row/cell coverage 100% 확인.
+- [x] `output/original_table_acceptance_4.json`에 4개 대표 샘플 결과 저장.
+- [x] 개발용 분할 샘플인 삼성카드_1/2 신규 API 호출은 중단하고 범위에서 제외.

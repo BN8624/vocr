@@ -36,7 +36,16 @@ The current goal is:
 Automatically convert the local staged Korean card statement samples to Excel, with the PDF-visible table preserved as the first sheet.
 ```
 
-The local acceptance PDFs are currently stored in `견본/` and are intentionally ignored by Git. They are the first acceptance set, not casual examples:
+The local sample PDFs are currently stored in `견본/` and are intentionally ignored by Git. Some are split-down development samples. The practical acceptance set is the largest-page representative sample for each card company:
+
+```text
+kb_bzcard_13.pdf
+삼성카드_7.pdf
+신한카드_11.pdf
+현대카드_8.pdf
+```
+
+The remaining local PDFs are useful for staged debugging and regression, but they are not the final acceptance scope by themselves:
 
 ```text
 삼성카드_1.pdf
@@ -106,7 +115,7 @@ First real API target:
 
 The configured Vision model is `gemini-3.1-flash-lite` in `config.yaml`.
 
-Each acceptance sample should produce:
+Each representative acceptance sample should produce:
 
 ```text
 output/<sample_name>/

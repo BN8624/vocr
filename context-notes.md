@@ -411,3 +411,12 @@
 - 이 지표는 PDF 육안 정답률이 아니라 “AI가 읽어 병합한 원본 행/셀을 Excel에서 잃지 않았는지”를 측정한다.
 - `tests/regression_samples.py`는 이제 row coverage 또는 cell coverage가 부족하면 PASS하지 않는다.
 - 기존 `output/acceptance_hyundai_8_gemma` 산출물은 source row 313개 대비 원본표 row 313개, source non-empty cell 2063개 대비 원본표 non-empty cell 2063개로 coverage 100%다.
+
+## 2026-06-15 대표 acceptance 범위 정정
+
+- 사용자가 acceptance 범위를 카드사별 최대 페이지 샘플 4개로 정정했다. 1장/2장/3장 샘플은 테스트 편의를 위해 쪼개 둔 개발용 샘플이다.
+- 대표 샘플은 KB `kb_bzcard_13`, 삼성카드 `삼성카드_7`, 신한카드 `신한카드_11`, 현대카드 `현대카드_8`이다.
+- 삼성카드_1/2에 대해 신규 Vision 호출을 시작하려 했지만 사용자 중단 후 범위 정정이 있었고, 남아 있던 `main.py --force-vision` 프로세스는 종료했다. 해당 샘플에는 cache/result.xlsx가 생성되지 않았다.
+- 대표 4개 샘플은 모두 기존 cache 기반 dry-run으로 새 `원본표` Excel 구조를 재생성했다.
+- `output/original_table_acceptance_4.json` 기준 4개 대표 샘플 모두 `원본표` 첫 시트, `전체명세_정규화`, `검산` 존재, row/cell coverage 100%, validation issue 0건이다.
+- 현대카드_8은 보존 지표와 validation issue는 통과하지만 checksum status는 `no_user_total_selected`다. 이는 앞서 합의한 7-8페이지 16,500원 차이 엣지케이스와 연결되며, 원본표 보존 실패로 분류하지 않는다.
