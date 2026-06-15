@@ -503,11 +503,15 @@ def _user_cell_value(header: str, value: Any, inferred_year: int | None = None) 
 
 def _is_date_header(header: str) -> bool:
     normalized = _normalize_header(header)
+    if normalized in {"이용일", "이용일자", "거래일", "사용일", "승인일", "매출일"}:
+        return True
     return normalized in {"이용일", "거래일", "사용일", "승인일", "매출일", "date"}
 
 
 def _is_amount_header(header: str) -> bool:
     normalized = _normalize_header(header)
+    if any(keyword in normalized for keyword in ("금액", "원금", "잔액", "할인", "적립", "포인트")):
+        return True
     amount_keywords = ("금액", "원금", "포인트", "point", "amount", "합계")
     if "현지" in normalized and "금액" in normalized:
         return True

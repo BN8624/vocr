@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from openpyxl import load_workbook
 
-from src.excel_exporter import _infer_years_for_rows, _parse_statement_period_text, export_excel
+from src.excel_exporter import _infer_years_for_rows, _is_amount_header, _is_date_header, _parse_statement_period_text, export_excel
 from src.validator import ValidationOutput
 
 
@@ -133,6 +133,9 @@ def main() -> int:
     assert extended_years[(1, 0)] == 2025
     assert extended_years[(2, 0)] == 2025
     assert extended_years[(3, 0)] == 2025
+    assert _is_date_header("이용일자")
+    assert _is_amount_header("결제 후 잔액")
+    assert _is_amount_header("예상적립/할인")
 
     print("original table export test passed")
     return 0
