@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import re
 import threading
 import time
@@ -146,6 +147,7 @@ def _extract_one_page(
 ) -> VisionResult:
     cache_path = cache_dir / f"{page.page_id}.vision.json"
     if cache_path.exists() and not force:
+        logging.info("Vision page %s reused from cache.", page.page_number)
         return VisionResult(
             chunk_id=page.page_id,
             page_number=page.page_number,
@@ -159,6 +161,7 @@ def _extract_one_page(
     raw_text_path = cache_path.with_suffix(".invalid.txt")
     max_retries = max(1, int(config.get("max_retries", 1)))
     image_bytes = _preprocess_page(page, config)
+    logging.info("Vision page %s started.", page.page_number)
 
     last_error: Exception | None = None
     for attempt in range(1, max_retries + 1):
@@ -180,6 +183,7 @@ def _extract_one_page(
             cache_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             _remove_if_exists(error_path)
             _remove_if_exists(raw_text_path)
+            logging.info("Vision page %s completed.", page.page_number)
             return VisionResult(
                 chunk_id=page.page_id,
                 page_number=page.page_number,
@@ -204,6 +208,7 @@ def _extract_one_page(
         "message": str(last_error),
     }
     error_path.write_text(json.dumps(error, ensure_ascii=False, indent=2), encoding="utf-8")
+    logging.info("Vision page %s failed.", page.page_number)
     return VisionResult(
         chunk_id=page.page_id,
         page_number=page.page_number,

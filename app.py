@@ -15,6 +15,8 @@ from review import _safe_output_name
 
 
 DEFAULT_OUTPUT_ROOT = "output/converted"
+PROCESS_IDLE_TIMEOUT_SECONDS = 480
+PROCESS_TERMINATE_GRACE_SECONDS = 10
 
 
 STAGES: list[tuple[str, str, int]] = [
@@ -299,8 +301,48 @@ class ConverterApp(tk.Tk):
             bufsize=1,
         )
         assert self.current_process.stdout is not None
-        for line in self.current_process.stdout:
+        line_queue: queue.Queue[str] = queue.Queue()
+
+        def read_output() -> None:
+            assert self.current_process is not None
+            assert self.current_process.stdout is not None
+            for line in self.current_process.stdout:
+                line_queue.put(line)
+
+        reader = threading.Thread(target=read_output, daemon=True)
+        reader.start()
+        last_activity = time.monotonic()
+        while True:
+            try:
+                line = line_queue.get(timeout=1)
+            except queue.Empty:
+                if self.current_process.poll() is not None:
+                    break
+                idle_seconds = time.monotonic() - last_activity
+                if idle_seconds >= PROCESS_IDLE_TIMEOUT_SECONDS:
+                    self.output_queue.put(
+                        (
+                            "log",
+                            f"{PROCESS_IDLE_TIMEOUT_SECONDS // 60}분 동안 진행 신호가 없어 작업을 중단합니다.",
+                        )
+                    )
+                    self.current_process.terminate()
+                    try:
+                        self.current_process.wait(timeout=PROCESS_TERMINATE_GRACE_SECONDS)
+                    except subprocess.TimeoutExpired:
+                        self.current_process.kill()
+                    return 124
+                continue
             clean = line.rstrip()
+            if clean:
+                last_activity = time.monotonic()
+                self.output_queue.put(("log", clean))
+                stage = stage_for_line(clean)
+                if stage:
+                    self.output_queue.put(("stage", stage))
+
+        while not line_queue.empty():
+            clean = line_queue.get_nowait().rstrip()
             if clean:
                 self.output_queue.put(("log", clean))
                 stage = stage_for_line(clean)
