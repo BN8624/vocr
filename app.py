@@ -115,6 +115,7 @@ class ConverterApp(tk.Tk):
         self.percent_var = tk.IntVar(value=0)
         self.dry_run_var = tk.BooleanVar(value=False)
         self.force_vision_var = tk.BooleanVar(value=False)
+        self.developer_visible = False
 
         self._build_ui()
         self.after(100, self._drain_queue)
@@ -139,11 +140,6 @@ class ConverterApp(tk.Tk):
         ttk.Button(controls, text="출력 폴더", command=self.select_output_root).grid(row=1, column=0, sticky="w", pady=(8, 0))
         ttk.Label(controls, textvariable=self.output_var).grid(row=1, column=1, sticky="ew", padx=10, pady=(8, 0))
         controls.columnconfigure(1, weight=1)
-
-        options = ttk.Frame(outer)
-        options.pack(fill="x", pady=(14, 0))
-        ttk.Checkbutton(options, text="기존 cache만 사용", variable=self.dry_run_var).pack(side="left")
-        ttk.Checkbutton(options, text="AI 재호출 강제", variable=self.force_vision_var).pack(side="left", padx=(18, 0))
 
         actions = ttk.Frame(outer)
         actions.pack(fill="x", pady=(18, 0))
@@ -171,8 +167,20 @@ class ConverterApp(tk.Tk):
         for _key, label, _percent in STAGES:
             ttk.Label(stage_line, text=label, font=("Malgun Gothic", 8)).pack(side="left", expand=True)
 
-        log_box = ttk.LabelFrame(outer, text="로그", padding=8)
-        log_box.pack(fill="both", expand=True, pady=(18, 0))
+        developer_bar = ttk.Frame(outer)
+        developer_bar.pack(fill="x", pady=(18, 0))
+        self.developer_button = ttk.Button(developer_bar, text="개발자 보기", command=self.toggle_developer)
+        self.developer_button.pack(anchor="w")
+
+        self.developer_frame = ttk.Frame(outer)
+
+        options = ttk.LabelFrame(self.developer_frame, text="개발자 옵션", padding=8)
+        options.pack(fill="x")
+        ttk.Checkbutton(options, text="기존 cache만 사용", variable=self.dry_run_var).pack(side="left")
+        ttk.Checkbutton(options, text="AI 재호출 강제", variable=self.force_vision_var).pack(side="left", padx=(18, 0))
+
+        log_box = ttk.LabelFrame(self.developer_frame, text="상세 로그", padding=8)
+        log_box.pack(fill="both", expand=True, pady=(12, 0))
         self.log_text = tk.Text(log_box, height=14, wrap="word", state="disabled", bg="#fbfbfb", relief="flat")
         scroll = ttk.Scrollbar(log_box, command=self.log_text.yview)
         self.log_text.configure(yscrollcommand=scroll.set)
@@ -206,6 +214,15 @@ class ConverterApp(tk.Tk):
             output_root = Path(path)
             self.jobs = [Job(job.pdf_path, output_root / _safe_output_name(job.pdf_path)) for job in self.jobs]
         self._reset_result_buttons()
+
+    def toggle_developer(self) -> None:
+        self.developer_visible = not self.developer_visible
+        if self.developer_visible:
+            self.developer_frame.pack(fill="both", expand=True, pady=(8, 0))
+            self.developer_button.configure(text="개발자 보기 닫기")
+        else:
+            self.developer_frame.pack_forget()
+            self.developer_button.configure(text="개발자 보기")
 
     def start(self) -> None:
         if self.running:

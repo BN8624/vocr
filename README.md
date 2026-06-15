@@ -228,11 +228,13 @@ Normal user flow:
 ```text
 1. Run `python app.py`.
 2. Select one or more PDF statements.
-3. Keep `기존 cache만 사용` off for a new PDF.
-4. Click `시작`.
+3. Click `시작`.
+4. Watch the progress bar and current step.
 5. Open the generated `result.xlsx`.
 6. Check the first sheet, `원본표`.
 ```
+
+The default screen is intentionally simple. It shows file selection, output location, start/stop buttons, progress, and result buttons. Cache-only runs, forced AI re-calls, and detailed logs are under `개발자 보기`, so normal users do not need to handle those options.
 
 For normal use, run `convert.py`. It creates one output folder per PDF and writes `result.xlsx`.
 

@@ -201,3 +201,12 @@ PC 전용 GUI 진입점은 app.py다.
 PDF 선택 후 시작을 누르면 main.py page mode 파이프라인이 실행되고 result.xlsx가 생성된다.
 진행상황은 단계별 진행바, 깜빡이는 현재 단계, 실시간 로그로 표시한다.
 ```
+
+## 2026-06-15 Latest GUI Role Split
+
+```text
+일반 사용자 기본 화면은 PDF 선택, 출력 폴더, 시작/중지, 진행상황, 결과 열기만 보여준다.
+cache 전용 실행, AI 재호출 강제, 상세 로그는 `개발자 보기`를 눌렀을 때만 열린다.
+진행바와 깜빡이는 현재 단계는 일반 사용자 화면에 유지한다.
+검증: python -X utf8 -m py_compile app.py, python -X utf8 tests\test_app_gui.py, developer toggle smoke.
+```
