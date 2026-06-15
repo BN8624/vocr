@@ -1,3 +1,34 @@
+## 2026-06-15 추가 계획: 원본표 복원 파이프라인을 메인 산출물로 전환
+
+이번 전환의 성공 기준은 다음이다.
+
+```text
+검산이 맞는다.
+AND result.xlsx가 생성된다.
+AND 첫 번째 시트가 원본표다.
+AND 원본표에 PDF의 모든 행과 열이 최대한 그대로 들어간다.
+AND 정규화/검산 시트는 보조 자료로 뒤에 붙는다.
+```
+
+작업 순서는 다음과 같다.
+
+```text
+1. src/excel_exporter.py에서 rows_merged.jsonl 기반 원본표 시트 생성 함수를 추가한다.
+   검증은 raw.header와 raw.cells가 Excel에 그대로 들어가는 테스트로 한다.
+2. export_excel()이 source_rows_path를 실제로 사용해 원본표를 첫 번째 시트로 만든다.
+   검증은 result.xlsx 첫 번째 시트명이 원본표인지 확인한다.
+3. 기존 전체명세 시트를 전체명세_정규화로 이름 변경한다.
+   검증은 기존 검산, 원본셀, 추가필드, 확인필요 시트가 유지되는지 확인한다.
+4. tests/test_original_table_export.py를 추가하고 regression_samples.py PASS 조건을 강화한다.
+   검증은 새 테스트와 기존 Excel exporter 테스트를 함께 실행한다.
+5. app.py 경로로 생성되는 result.xlsx도 같은 시트 계약을 만족하는지 확인한다.
+   검증은 캐시 기반 실사용 샘플로 workbook sheet order를 확인한다.
+```
+
+검산은 품질 보증 장치고, 실제 작업은 원본표 복원이다.
+
+---
+
 맞습니다. 이 말이 핵심입니다.
 
 지금부터 vocr의 목표는 이렇게 잡아야 합니다.

@@ -271,3 +271,17 @@
 - [x] 시작/중지/Excel 열기/폴더 열기 버튼 추가.
 - [x] 진행바, 현재 단계 깜빡임, 실시간 로그 추가.
 - [x] GUI helper 테스트 추가.
+
+## 2026-06-15 원본표 복원 파이프라인 전환
+
+- [x] 문서 기준을 원본표 중심 산출물로 정정.
+- [ ] `src/excel_exporter.py`의 현재 시트 생성 흐름과 `source_rows_path` 사용 여부 확인.
+- [ ] `rows_merged.jsonl`의 `raw.header`와 `raw.cells`를 읽어 `원본표` 시트를 생성.
+- [ ] `원본표`를 첫 번째 시트로 배치하고 비어 있지 않게 검증.
+- [ ] header보다 cells가 많을 때 `extra_col_N`으로 모든 값을 보존.
+- [ ] header보다 cells가 적을 때 부족한 칸을 빈칸으로 채움.
+- [ ] 기존 `전체명세` 시트를 `전체명세_정규화`로 이름 변경.
+- [ ] `검산`, `원본셀`, `추가필드`, `확인필요` 시트 유지.
+- [ ] `tests/test_original_table_export.py` 추가.
+- [ ] `tests/regression_samples.py` PASS 조건에 `원본표` 검증 추가.
+- [ ] `app.py` 실행 결과의 `result.xlsx` 시트 순서 확인.

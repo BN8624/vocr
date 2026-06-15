@@ -1,28 +1,39 @@
 # vocr
 
-vocr is a local Python tool for converting image-based Korean credit card statement PDFs into audit-friendly Excel files with a Vision LLM.
+vocr is a local Python tool for converting image-based Korean credit card statement PDFs into Excel files with a Vision LLM.
 
-The project is not OCR-first. The primary path is:
+The project is not OCR-first. The main product is no longer a normalized checksum table. The main product is an Excel workbook whose first sheet restores the visible PDF table as much as possible.
+
+The primary output path is:
 
 ```text
 PDF page image
--> overlapping visual chunks
+-> Vision LLM JSON rows/cells
+-> duplicate-aware row merge
+-> original table restoration from raw.header/raw.cells
+-> result.xlsx
+```
+
+The checksum and normalization path still exists, but it is a quality-assurance path:
+
+```text
+PDF page image
 -> Vision LLM JSON rows/cells
 -> duplicate-aware row merge
 -> profile-based column mapping
 -> normalization
 -> validation and automation scoring
--> result.xlsx
+-> auxiliary sheets in result.xlsx
 ```
 
 ## Current Goal
 
-The goal is no longer "make a page where a person reviews many rows."
+The goal is no longer "make a page where a person reviews many rows" or "export only normalized transaction rows."
 
 The current goal is:
 
 ```text
-Automatically convert the local staged Korean card statement samples to Excel, starting with the three 1-page samples.
+Automatically convert the local staged Korean card statement samples to Excel, with the PDF-visible table preserved as the first sheet.
 ```
 
 The local acceptance PDFs are currently stored in `견본/` and are intentionally ignored by Git. They are the first acceptance set, not casual examples:
@@ -41,6 +52,31 @@ The local acceptance PDFs are currently stored in `견본/` and are intentionall
 ```
 
 `review.html` is a debug and exception screen. If a person must inspect every row, the automation has failed.
+
+## Excel Output Contract
+
+`result.xlsx` sheet order must be:
+
+```text
+원본표
+전체명세_정규화
+검산
+원본셀
+추가필드
+확인필요
+```
+
+`원본표` is the main user-facing sheet. It must be first and non-empty. It is built from `rows_merged.jsonl` first, then `rows_raw.jsonl` if merged rows are unavailable.
+
+`원본표` uses `raw.header` and `raw.cells` instead of collapsing the data into `date`, `card_label`, `merchant`, `amount`, and `billing_amount`. Tracking columns are prefixed before the visible PDF columns:
+
+```text
+page | chunk_id | local_row_index | row_type | <PDF header columns...>
+```
+
+No raw cell should be discarded. If a row has more cells than headers, the remaining values are preserved as `extra_col_1`, `extra_col_2`, and so on. If a row has fewer cells than headers, the missing cells are written as blanks.
+
+`전체명세_정규화` is the old normalized `전체명세` sheet under a clearer name. It is kept for checksum, automation quality checks, and exception handling. It is not the main result.
 
 ## Success Criteria
 
@@ -93,7 +129,10 @@ all sample PDFs render successfully
 all chunks are generated
 Vision extraction succeeds for all required chunks
 result.xlsx is generated
-전체명세, 검산, 원본셀, 추가필드, 확인필요 sheets exist
+원본표 sheet exists
+원본표 is the first sheet
+원본표 is non-empty
+전체명세_정규화, 검산, 원본셀, 추가필드, 확인필요 sheets exist
 automation_summary.json exists
 blocked samples == 0
 blocked rows == 0
