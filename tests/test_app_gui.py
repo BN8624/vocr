@@ -30,6 +30,9 @@ def main() -> int:
     assert "page" in command
     assert "--dry-run" in command
     assert "--force-vision" in command
+    output_dir = app.user_output_dir(Path("C:/work/vocr/output/converted"), Path("C:/work/vocr/input.pdf"))
+    assert output_dir.parent == Path("C:/work/vocr/output/converted")
+    assert output_dir.name.startswith("input_")
 
     print("app gui test passed")
     return 0

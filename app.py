@@ -54,6 +54,10 @@ class Job:
     output_dir: Path
 
 
+def user_output_dir(output_root: Path, pdf_path: Path) -> Path:
+    return output_root / f"{_safe_output_name(pdf_path)}_{time.strftime('%Y%m%d_%H%M%S')}_{int(time.time() * 1000) % 1000:03d}"
+
+
 def stage_for_line(line: str) -> str | None:
     for pattern, stage in STAGE_PATTERNS:
         if pattern in line:
@@ -265,14 +269,16 @@ class ConverterApp(tk.Tk):
             for index, job in enumerate(self.jobs, start=1):
                 if not self.running:
                     break
+                run_job = job if bool(self.dry_run_var.get()) else Job(job.pdf_path, user_output_dir(job.output_dir.parent, job.pdf_path))
                 self.output_queue.put(("status", f"{index}/{len(self.jobs)} 변환 중"))
                 self.output_queue.put(("stage", "render"))
                 self.output_queue.put(("log", f"[{index}/{len(self.jobs)}] {job.pdf_path}"))
-                code = self._run_one(job)
+                self.output_queue.put(("log", f"출력 폴더: {run_job.output_dir}"))
+                code = self._run_one(run_job)
                 if code != 0:
                     self.output_queue.put(("error", f"실패: {job.pdf_path.name} (exit {code})"))
                     return
-                excel = job.output_dir / "result.xlsx"
+                excel = run_job.output_dir / "result.xlsx"
                 if not excel.exists():
                     self.output_queue.put(("error", f"Excel 파일이 생성되지 않았습니다: {excel}"))
                     return
