@@ -282,6 +282,8 @@ def _build_table_group(group_id: str, rows: list[dict[str, Any]]) -> dict[str, A
     _repair_kb_bizcard_statement_columns(columns)
     _repair_kb_bizcard_shifted_columns(columns)
     _repair_installment_statement_columns(columns)
+    _repair_woori_payable_statement_columns(columns)
+    _repair_nh_principal_statement_columns(columns)
     _repair_samsung_billing_statement_columns(columns)
     _mark_review_columns(columns)
 
@@ -421,6 +423,70 @@ def _repair_installment_statement_columns(columns: list[dict[str, Any]]) -> None
                 "medium",
                 "혜택 구분 다음의 금액 열을 혜택/할인 금액으로 보정합니다.",
             )
+
+
+def _repair_woori_payable_statement_columns(columns: list[dict[str, Any]]) -> None:
+    if len(columns) != 7:
+        return
+    if _sample_rate(columns[0], _is_date_like) < 0.8:
+        return
+    if _sample_rate(columns[1], _is_text_like_not_money) < 0.8:
+        return
+    money_indexes = [2, 3, 5, 6]
+    if any(_sample_rate(columns[index], _is_money_like) < 0.8 for index in money_indexes):
+        return
+    if _sample_rate(columns[4], _is_text_like_not_money) < 0.8:
+        return
+    if _sample_rate(columns[2], _same_value_as(columns[3])) < 0.8:
+        return
+    if not _has_discounted_payable_pattern(columns[2], columns[5], columns[6]):
+        return
+
+    roles = [
+        ("date", "high", "Woori statement date column."),
+        ("merchant", "high", "Woori statement merchant column."),
+        ("amount", "high", "Woori statement original use amount column."),
+        ("extra", "medium", "Woori statement intermediate billing display column kept as source detail."),
+        ("memo", "medium", "Woori statement benefit label column."),
+        ("discount", "medium", "Woori statement benefit amount column."),
+        ("billing_amount", "high", "Woori statement final payable amount column."),
+    ]
+    for column, (field, confidence, reason) in zip(columns, roles):
+        _set_column_role(column, field, confidence, reason)
+
+
+def _repair_nh_principal_statement_columns(columns: list[dict[str, Any]]) -> None:
+    if len(columns) != 8:
+        return
+    if _sample_rate(columns[0], _is_date_like) < 0.8:
+        return
+    if _sample_rate(columns[1], _is_text_like_not_money) < 0.8:
+        return
+    if _sample_rate(columns[2], _is_money_like) < 0.8:
+        return
+    if _sample_rate(columns[3], _is_benefit_value_like) < 0.6:
+        return
+    if _sample_rate(columns[4], _is_installment_round_like) < 0.5:
+        return
+    if _sample_rate(columns[5], _is_money_like) < 0.8:
+        return
+    if _sample_rate(columns[6], _is_money_like) < 0.8:
+        return
+    if _sample_rate(columns[7], _is_money_like) < 0.5:
+        return
+
+    roles = [
+        ("date", "high", "NH statement date column."),
+        ("merchant", "high", "NH statement merchant column."),
+        ("extra", "medium", "NH statement original use amount kept as source detail."),
+        ("discount", "medium", "NH statement benefit amount column."),
+        ("extra", "medium", "NH statement installment round column."),
+        ("amount", "high", "NH statement principal column used for checksum."),
+        ("fee", "medium", "NH statement fee column."),
+        ("extra", "medium", "NH statement remaining balance column excluded from checksum."),
+    ]
+    for column, (field, confidence, reason) in zip(columns, roles):
+        _set_column_role(column, field, confidence, reason)
 
 
 def _repair_hyundai_point_statement_columns(columns: list[dict[str, Any]]) -> None:
@@ -586,6 +652,56 @@ def _sample_rate(column: dict[str, Any], predicate: Any) -> float:
     if not values:
         return 0.0
     return sum(1 for value in values if predicate(value)) / len(values)
+
+
+def _same_value_as(other_column: dict[str, Any]) -> Any:
+    other_values = [
+        _money_value(str(value).strip())
+        for value in other_column.get("sample_values", [])
+        if str(value).strip()
+    ]
+
+    def predicate(value: str) -> bool:
+        current = _money_value(value)
+        return current is not None and current in other_values
+
+    return predicate
+
+
+def _has_discounted_payable_pattern(amount_column: dict[str, Any], discount_column: dict[str, Any], payable_column: dict[str, Any]) -> bool:
+    amounts = [_money_value(str(value).strip()) for value in amount_column.get("sample_values", [])]
+    discounts = [_money_value(str(value).strip()) for value in discount_column.get("sample_values", [])]
+    payables = [_money_value(str(value).strip()) for value in payable_column.get("sample_values", [])]
+    matches = 0
+    checked = 0
+    for amount, discount, payable in zip(amounts, discounts, payables):
+        if amount is None or discount is None or payable is None:
+            continue
+        checked += 1
+        if amount - discount == payable:
+            matches += 1
+    return checked >= 3 and matches / checked >= 0.8
+
+
+def _is_installment_round_like(value: str) -> bool:
+    return bool(re.fullmatch(r"\d{1,2}/\d{1,2}", value.strip()))
+
+
+def _is_benefit_value_like(value: str) -> bool:
+    text = value.strip()
+    return bool(re.fullmatch(r"[\d,]+(?:\([^)]*\))?", text))
+
+
+def _money_value(value: str) -> int | None:
+    if not _is_money_like(value):
+        return None
+    digits = re.sub(r"[^0-9-]", "", value)
+    if digits in {"", "-"}:
+        return None
+    try:
+        return int(digits)
+    except ValueError:
+        return None
 
 
 def _is_card_label_like(value: str) -> bool:

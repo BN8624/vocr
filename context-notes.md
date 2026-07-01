@@ -458,6 +458,19 @@
 - KB `output/converted/kb_bzcard_13/result.xlsx` 재생성 결과 첫 시트는 8개 사용자 컬럼만 포함한다. `이용일`은 `2024-12-11`, `2025-01-02` 같은 날짜 셀이고, `이용금액`과 `이번달 결제금액`은 숫자 셀이다.
 - KB 명세서의 기준기간은 첫 페이지 상단 이미지에서 보조 OCR로 `2024.12.09 ~ 2025.01.08`을 읽어 연도 보정에 사용했다. OCR 실패 시에는 기존 월 순서 기반 추정으로 fallback한다.
 - `확인필요`처럼 데이터 행이 없는 시트에는 Excel Table을 만들지 않으므로, 사용자가 본 Excel 복구 경고의 유력 원인인 헤더만 있는 table 정의를 제거했다.
+## 2026-07-01 우리카드/농협카드 신규 샘플 시작
+
+- `견본` 폴더에 신규 카드사로 `우리카드.pdf`, `농협카드.pdf`가 추가됐다.
+- PyMuPDF 기준 페이지 수는 우리카드 8페이지, 농협카드 2페이지다.
+- 파일명에 `_페이지수` 접미사가 없어 기존 `tests/regression_samples.py`의 파일명 기반 페이지 수 검증에는 바로 넣지 않는다.
+- 기존 대표 카드사 처리와 동일하게 카드사별 별도 출력 폴더를 만들고, Vision 결과, 원본표 Excel, 검산 요약, 확인필요 이슈를 확인한다.
+- 우리카드는 `output/acceptance_woori_8_gemma_20260701`에 신규 Vision 실행했고, `vision_ok=8`, `transaction_count=180`, `normalization_review_count=0`, `validation_issue_row_count=0`이다.
+- 우리카드 검산 기준은 최종 납부 열인 `납부하실금액`이다. `billing_amount_total=1,700,238`이고 페이지별 `납부하실금액` 소계 합산 후보와 자동 일치한다.
+- 농협카드는 `output/acceptance_nh_2_gemma_20260701`에 신규 Vision 실행했고, `vision_ok=2`, `transaction_count=80`, `normalization_review_count=0`, `validation_issue_row_count=0`이다.
+- 농협카드 검산 기준은 할부성 표의 이번 달 `원금`이다. `amount_total=6,376,141`이고 페이지별 `원금` 합계 후보와 자동 일치한다.
+- 농협 `SMS이용료 우수회원면제` 행은 이용금액 300원이지만 원금과 수수료가 0인 면제 행이므로 `amount_zero` 확인필요에서 제외한다.
+- 두 카드사 모두 최종 `checksum_status=auto_selected_total_matched`, `difference=0`, 자동 수락률 100%다.
+
 ## 2026-06-16 GUI 캐시 재사용 정책 수정
 
 - 사용자가 지적한 문제는 `app.py` 일반 실행이 `output/converted/<pdf-name>` 고정 폴더를 써서 기존 `cache`가 있으면 새 API 호출 없이 캐시를 재사용하는 점이었다.

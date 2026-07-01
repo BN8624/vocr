@@ -161,7 +161,7 @@ def _validate_rows(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]
         if not isinstance(amount, int):
             if not _is_benefit_only_row(transaction, cells) and not _is_foreign_billing_only_row(transaction, cells):
                 issues[key].append(_issue("amount_not_numeric", "이용금액이 숫자가 아닙니다."))
-        elif amount == 0 and not _is_zero_principal_adjustment_row(header, cells):
+        elif amount == 0 and not _is_zero_principal_adjustment_row(header, cells) and not _is_nh_sms_fee_waiver_row(cells):
             issues[key].append(_issue("amount_zero", "이용금액이 0입니다. 실제 0원 거래인지 확인이 필요합니다."))
         elif abs(amount) > 100_000_000:
             issues[key].append(_issue("amount_too_large", f"이용금액이 매우 큽니다: {amount:,}"))
@@ -893,6 +893,23 @@ def _is_zero_principal_adjustment_row(header: list[str], cells: list[str]) -> bo
     return True
 
 
+def _is_nh_sms_fee_waiver_row(cells: list[str]) -> bool:
+    if len(cells) != 8:
+        return False
+    joined = " ".join(str(cell).strip() for cell in cells if str(cell).strip())
+    usage_amount = _parse_amount(cells[2])
+    principal = _parse_amount(cells[5])
+    fee = _parse_amount(cells[6])
+    return (
+        "sms" in joined.lower()
+        and "\uba74\uc81c" in joined
+        and isinstance(usage_amount, int)
+        and usage_amount > 0
+        and principal == 0
+        and fee == 0
+    )
+
+
 def _amount_valid_or_exempt(row: dict[str, Any]) -> bool:
     transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
     cells = [str(value) for value in row.get("raw", {}).get("cells", [])]
@@ -1164,7 +1181,41 @@ def _aggregate_total_candidates(source_totals: list[dict[str, Any]]) -> list[dic
     aggregates.extend(_samsung_usage_total_aggregates(source_totals))
     aggregates.extend(_kb_monthly_payment_total_aggregates(source_totals))
     aggregates.extend(_principal_grand_total_aggregates(source_totals))
+    aggregates.extend(_woori_payable_total_aggregates(source_totals))
     return aggregates
+
+
+def _woori_payable_total_aggregates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    candidates = [
+        candidate
+        for candidate in source_totals
+        if _is_woori_payable_subtotal_label(str(candidate.get("label", "")))
+        and isinstance(candidate.get("amount"), int)
+    ]
+    pages = sorted({int(candidate.get("page", 0) or 0) for candidate in candidates})
+    if len(candidates) < 2 or len(pages) < 2:
+        return []
+    amount = sum(int(candidate["amount"]) for candidate in candidates)
+    label = "\uc6b0\ub9ac\uce74\ub4dc \ud398\uc774\uc9c0\ubcc4 \ub0a9\ubd80\ud558\uc2e4\uae08\uc561 \ud569\uc0b0"
+    return [
+        {
+            "id": _aggregate_total_id(label, amount, candidates),
+            "label": label,
+            "value_text": f"{amount:,}",
+            "amount": amount,
+            "chunk_id": "+".join(str(candidate.get("chunk_id", "")) for candidate in candidates),
+            "page": int(candidates[0].get("page", 0) or 0),
+            "pages": pages,
+            "needs_review": False,
+            "review_reason": "",
+            "components": candidates,
+        }
+    ]
+
+
+def _is_woori_payable_subtotal_label(label: str) -> bool:
+    normalized = re.sub(r"\s+", "", label)
+    return "\uc18c\uacc4" in normalized and "\ub0a9\ubd80\ud558\uc2e4\uae08\uc561" in normalized
 
 
 def _principal_grand_total_aggregates(source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1434,6 +1485,8 @@ def _parse_adjustment_amount(value: Any) -> int | None:
 
 def _total_candidate_score(candidate: dict[str, Any]) -> int:
     label = re.sub(r"\s+", "", str(candidate.get("label", "")).lower())
+    if "\uc6b0\ub9ac\uce74\ub4dc" in label and "\ub0a9\ubd80\ud558\uc2e4\uae08\uc561" in label and "\ud569\uc0b0" in label:
+        return 90
     if "총합계" in label or label == "합계":
         return 100
     if any(token in label for token in ("청구금액", "결제금액", "이번달")):

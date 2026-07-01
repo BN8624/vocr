@@ -167,6 +167,29 @@ def main() -> int:
         assert principal_grand_total.summary["checksum"]["matched_total"]["label"] == "페이지별 총합계 원금 합산"
         assert principal_grand_total.summary["checksum"]["matched_field"] == "amount_total"
 
+        woori_payable = build_validation(
+            normalization_output=NormalizationOutput(
+                transactions_path=transactions_path,
+                summary_path=summary_path,
+                transaction_count=1,
+                review_count=0,
+                amount_total=1713940,
+                billing_amount_total=1700238,
+                summary={},
+            ),
+            vision_results=[
+                _vision_total("\uc18c\uacc4(\uc591\ud604\uc911) \ub0a9\ubd80\ud558\uc2e4\uae08\uc561", 529382, page_number=2, chunk_id="page_002"),
+                _vision_total("\uc18c\uacc4(\uc591\ud604\uc900) \ub0a9\ubd80\ud558\uc2e4\uae08\uc561", 748761, page_number=5, chunk_id="page_005"),
+                _vision_total("\uc18c\uacc4(\uc591\ud604\uc911) \ub0a9\ubd80\ud558\uc2e4\uae08\uc561", 422095, page_number=8, chunk_id="page_008"),
+            ],
+            merged_dir=merged_dir,
+            expected_chunk_count=3,
+        )
+        assert woori_payable is not None
+        assert woori_payable.checksum_status == "auto_selected_total_matched"
+        assert woori_payable.summary["checksum"]["matched_field"] == "billing_amount_total"
+        assert woori_payable.summary["checksum"]["matched_total"]["amount"] == 1700238
+
         samsung_transactions_path = merged_dir / "samsung_transactions.jsonl"
         samsung_rows = [
             _transaction(

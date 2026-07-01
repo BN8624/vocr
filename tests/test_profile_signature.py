@@ -111,8 +111,100 @@ def main() -> int:
         assert kb_rows[0]["transaction"]["date"] == "12-11"
         assert kb_rows[0]["transaction"]["billing_amount"] == 171000
 
+        woori = _woori_payable_statement(root / "woori")
+        woori_fields = [column["suggested_field"] for column in woori["mapping"].table_groups[0]["columns"]]
+        assert woori_fields == ["date", "merchant", "amount", "extra", "memo", "discount", "billing_amount"]
+        assert woori["mapping"].table_groups[0]["review_column_count"] == 0
+        assert woori["normalization"].review_count == 0
+        assert woori["normalization"].amount_total == 34200
+        assert woori["normalization"].billing_amount_total == 33927
+
+        nh = _nh_principal_statement(root / "nh")
+        nh_fields = [column["suggested_field"] for column in nh["mapping"].table_groups[0]["columns"]]
+        assert nh_fields == ["date", "merchant", "extra", "discount", "extra", "amount", "fee", "extra"]
+        assert nh["mapping"].table_groups[0]["review_column_count"] == 0
+        assert nh["normalization"].review_count == 0
+        assert nh["normalization"].amount_total == 896833
+
     print("profile signature test passed")
     return 0
+
+
+def _woori_payable_statement(root: Path) -> dict[str, object]:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    profiles_dir = root / "profiles"
+    output_dir.mkdir(parents=True)
+    profiles_dir.mkdir(parents=True)
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision(
+                ["use_date", "merchant", "use_amount", "billing_display", "benefit", "benefit_amount", "payable_amount"],
+                [
+                    ["02/02", "store_a", "15,000", "15,000", "discount", "120", "14,880"],
+                    ["02/05", "store_b", "11,700", "11,700", "discount", "93", "11,607"],
+                    ["02/06", "store_c", "7,500", "7,500", "discount", "60", "7,440"],
+                ],
+            )
+        ],
+        chunks=[_chunk()],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping = build_mapping_suggestions(
+        merge_output=merge_output,
+        output_dir=output_dir,
+        profiles_dir=profiles_dir,
+    )
+    assert mapping is not None
+    normalization = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping,
+        merged_dir=merged_dir,
+    )
+    assert normalization is not None
+    return {"mapping": mapping, "normalization": normalization}
+
+
+def _nh_principal_statement(root: Path) -> dict[str, object]:
+    output_dir = root / "output"
+    merged_dir = output_dir / "merged"
+    profiles_dir = root / "profiles"
+    output_dir.mkdir(parents=True)
+    profiles_dir.mkdir(parents=True)
+    merge_output = build_row_outputs(
+        vision_results=[
+            _vision(
+                ["use_date", "merchant", "use_amount", "benefit_amount", "installment", "principal", "fee", "remaining_balance"],
+                [
+                    ["04/01", "fee_waiver", "300", "", "", "0", "0", ""],
+                    ["10/06", "store_a", "158,500", "1,048(exempt)", "12/7", "13,208", "0", "66,040"],
+                    ["03/17", "store_b", "1,000,000", "8,712(exempt)", "3/2", "333,333", "0", "333,333"],
+                    ["04/08", "store_c", "20,200", "101(discount)", "", "20,099", "0", ""],
+                    ["04/09", "store_d", "84,840", "848(discount)", "", "83,992", "0", ""],
+                    ["04/10", "store_e", "446,201", "", "", "446,201", "0", ""],
+                ],
+            )
+        ],
+        chunks=[_chunk()],
+        input_pdf=root / "sample.pdf",
+        output_dir=output_dir,
+        merged_dir=merged_dir,
+    )
+    mapping = build_mapping_suggestions(
+        merge_output=merge_output,
+        output_dir=output_dir,
+        profiles_dir=profiles_dir,
+    )
+    assert mapping is not None
+    normalization = build_transactions(
+        merge_output=merge_output,
+        mapping_output=mapping,
+        merged_dir=merged_dir,
+    )
+    assert normalization is not None
+    return {"mapping": mapping, "normalization": normalization}
 
 
 def _kb_bizcard_statement(root: Path) -> dict[str, object]:
