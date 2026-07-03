@@ -222,3 +222,24 @@ Full raw preservation moved to `원본표_개발자`, followed by `전체명세_
 Excel tables are created only when a sheet has data rows, and table names are ASCII-safe to avoid Excel repair warnings.
 KB cache dry-run verified `원본표` headers, 2024-12/2025-01 dates from statement-period OCR, numeric amount cells, and 100% raw preservation in `원본표_개발자`.
 ```
+
+## 2026-07-03 Latest Full Rerun Handoff
+
+```text
+Full rerun code and verification baseline commit is 7eb140b 전체 카드 재검증 결과 보강.
+Working tree was cleaned after reverting the temporary merchant auto-correction experiment.
+Merchant OCR correction policy remains candidate-only: do not auto-replace merchant text, show merchant_correction_candidate in 확인필요 instead.
+
+Fresh full rerun output root is output/full_rerun_20260703.
+Verification report is output/full_rerun_20260703/verification_report.json.
+
+KB 13p: 173 transactions, checksum auto_selected_total_matched, matched_field billing_amount_total, difference 0, validation issues 0.
+Shinhan 11p: 510 transactions, checksum auto_selected_total_matched, matched_field amount_total, difference 0, validation issues 0.
+Woori 8p: 180 transactions, checksum auto_selected_total_matched, matched_field billing_amount_total, difference 0, validation issues 0.
+Samsung 7p: 248 transactions, checksum auto_selected_total_matched, matched_field amount_total_discount_reconciled, difference 0, validation issues 0.
+NH 2p: 80 transactions, checksum auto_selected_total_matched, matched_field amount_total, difference 0, validation issues 0.
+Hyundai 8p: 289 transactions, validation issues 0, first sheet 원본표, date/number type warnings 0. Checksum remains no_user_total_selected because the known pages 7-8 difference of 16,500 won is kept as an edge-case 안내, not auto-adjusted.
+
+All six workbooks have first sheet 원본표 and date/number type warnings 0.
+All tests passed with sequential python -X utf8 tests/test_*.py, total 21 tests.
+```
