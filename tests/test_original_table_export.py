@@ -136,6 +136,8 @@ def main() -> int:
     assert _is_date_header("이용일자")
     assert _is_amount_header("결제 후 잔액")
     assert _is_amount_header("예상적립/할인")
+    assert _is_amount_header("수수료")
+    assert _is_amount_header("수수료(이자)")
 
     print("original table export test passed")
     return 0

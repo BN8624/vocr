@@ -458,6 +458,25 @@
 - KB `output/converted/kb_bzcard_13/result.xlsx` 재생성 결과 첫 시트는 8개 사용자 컬럼만 포함한다. `이용일`은 `2024-12-11`, `2025-01-02` 같은 날짜 셀이고, `이용금액`과 `이번달 결제금액`은 숫자 셀이다.
 - KB 명세서의 기준기간은 첫 페이지 상단 이미지에서 보조 OCR로 `2024.12.09 ~ 2025.01.08`을 읽어 연도 보정에 사용했다. OCR 실패 시에는 기존 월 순서 기반 추정으로 fallback한다.
 - `확인필요`처럼 데이터 행이 없는 시트에는 Excel Table을 만들지 않으므로, 사용자가 본 Excel 복구 경고의 유력 원인인 헤더만 있는 table 정의를 제거했다.
+## 2026-07-03 전체 카드 직접 재실행 시작
+
+- 목표는 `견본` 폴더의 현재 6개 카드 PDF를 기존 캐시 재사용 없이 새 출력 루트에서 직접 실행하고 검증하는 것이다.
+- 현재 견본은 `kb_bzcard_13.pdf` 13페이지, `신한카드_11.pdf` 11페이지, `우리카드.pdf` 8페이지, `현대카드_8.pdf` 8페이지, `삼성카드_7.pdf` 7페이지, `농협카드.pdf` 2페이지다.
+- 출력 루트는 `output/full_rerun_20260703`로 둔다.
+- 현재 워크트리에는 삼성 상호명 OCR 자동 교정 관련 미커밋 변경이 있다. 이번 재실행은 현재 워크트리 기준으로 진행하되, 이 변경은 별도 결정 전까지 되돌리거나 커밋하지 않는다.
+
+## 2026-07-03 전체 카드 직접 재실행 결과
+
+- 6개 카드 모두 `output/full_rerun_20260703` 아래에서 새로 실행했다. KB는 이후 검산 보정 반영을 위해 cache 기반 dry-run으로 재생성했으므로 현재 `summary.json`의 `llm_calls`는 dry-run 값이다.
+- 검증 리포트는 `output/full_rerun_20260703/verification_report.json`에 갱신했다.
+- KB 13페이지는 `transaction_count=173`, `checksum=auto_selected_total_matched`, `matched_field=billing_amount_total`, `difference=0`, `validation_issue_row_count=0`, 첫 시트 `원본표`, 날짜/숫자 타입 경고 0건이다.
+- 신한카드 11페이지는 `transaction_count=510`, `matched_field=amount_total`, `difference=0`, 이슈 0건, 날짜/숫자 타입 경고 0건이다.
+- 우리카드 8페이지는 `transaction_count=180`, `matched_field=billing_amount_total`, `difference=0`, 이슈 0건, 날짜/숫자 타입 경고 0건이다.
+- 삼성카드 7페이지는 `transaction_count=248`, `matched_field=amount_total_discount_reconciled`, `difference=0`, 이슈 0건, 날짜/숫자 타입 경고 0건이다.
+- 농협카드 2페이지는 `transaction_count=80`, `matched_field=amount_total`, `difference=0`, 이슈 0건, 날짜/숫자 타입 경고 0건이다. `수수료`와 `수수료(이자)`를 일반 금액형 헤더로 추가해 `0` 값도 숫자 셀로 저장되게 보강했다.
+- 현대카드 8페이지는 `transaction_count=289`, 이슈 0건, 첫 시트 `원본표`, 날짜/숫자 타입 경고 0건이다. 다만 기존 합의한 `7~8페이지 16,500원 차이` 엣지케이스 때문에 checksum은 `no_user_total_selected`로 남겨 안내 대상이다.
+- 전체 자동 테스트는 `tests/test_*.py` 21개를 순차 실행해 모두 통과했다.
+
 ## 2026-07-01 우리카드/농협카드 신규 샘플 시작
 
 - `견본` 폴더에 신규 카드사로 `우리카드.pdf`, `농협카드.pdf`가 추가됐다.

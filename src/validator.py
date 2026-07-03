@@ -39,12 +39,20 @@ def build_validation(
     merged_dir.mkdir(parents=True, exist_ok=True)
     rows = _read_jsonl(normalization_output.transactions_path)
     source_totals = _source_total_candidates(vision_results or [])
+    rows = _repair_kb_total_leak_rows(rows, source_totals)
+    has_kb_repair = _has_kb_billing_amount_repair(rows)
+    amount_total = _sum_transaction_amount(rows, "amount") if has_kb_repair else normalization_output.amount_total
+    billing_amount_total = (
+        _sum_transaction_amount(rows, "billing_amount")
+        if has_kb_repair
+        else normalization_output.billing_amount_total
+    )
     row_issues = _validate_rows(rows)
     _add_kb_total_leak_issues(row_issues, rows, source_totals)
     column_quality = _column_quality(rows)
     checksum = _checksum_summary(
-        amount_total=normalization_output.amount_total,
-        billing_amount_total=normalization_output.billing_amount_total,
+        amount_total=amount_total,
+        billing_amount_total=billing_amount_total,
         rows=rows,
         source_totals=source_totals,
         processed_chunk_count=len(vision_results or []),
@@ -112,6 +120,24 @@ def build_validation(
         checksum_difference=checksum.get("difference"),
         summary=summary,
     )
+
+
+def _sum_transaction_amount(rows: list[dict[str, Any]], field: str) -> int:
+    total = 0
+    for row in rows:
+        transaction = row.get("transaction", {}) if isinstance(row.get("transaction"), dict) else {}
+        amount = transaction.get(field)
+        if isinstance(amount, int):
+            total += amount
+    return total
+
+
+def _has_kb_billing_amount_repair(rows: list[dict[str, Any]]) -> bool:
+    for row in rows:
+        extra_fields = row.get("extra_fields", {}) if isinstance(row.get("extra_fields"), dict) else {}
+        if "kb_billing_amount_repair" in extra_fields:
+            return True
+    return False
 
 
 def load_validation_output(merged_dir: Path) -> ValidationOutput | None:
@@ -234,6 +260,60 @@ def _add_kb_total_leak_issues(
                     "KB 거래행의 이번달 결제금액이 같은 페이지 합계값과 같습니다. 합계행 금액이 거래행으로 유입됐을 가능성이 있습니다.",
                 )
             )
+
+
+def _repair_kb_total_leak_rows(rows: list[dict[str, Any]], source_totals: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    totals_by_page: dict[int, set[int]] = defaultdict(set)
+    for candidate in source_totals:
+        page = int(candidate.get("page", 0) or 0)
+        amount = candidate.get("amount")
+        if not page or not isinstance(amount, int):
+            continue
+        if _looks_like_kb_monthly_payment_label(str(candidate.get("label", ""))):
+            totals_by_page[page].add(amount)
+    if not totals_by_page:
+        return rows
+
+    repaired_rows: list[dict[str, Any]] = []
+    for row in rows:
+        repaired = json.loads(json.dumps(row, ensure_ascii=False))
+        source = repaired.get("source", {}) if isinstance(repaired.get("source"), dict) else {}
+        raw = repaired.get("raw", {}) if isinstance(repaired.get("raw"), dict) else {}
+        transaction = repaired.get("transaction", {}) if isinstance(repaired.get("transaction"), dict) else {}
+        header = [str(value) for value in raw.get("header", [])]
+        cells = [str(value) for value in raw.get("cells", [])]
+        page = int(source.get("page", 0) or 0)
+        amount = transaction.get("amount")
+        billing_amount = transaction.get("billing_amount")
+        if (
+            page
+            and _is_kb_monthly_payment_row_header(header)
+            and isinstance(amount, int)
+            and isinstance(billing_amount, int)
+            and amount > 0
+            and amount <= 10_000
+            and billing_amount >= 100_000
+            and billing_amount >= amount * 20
+            and billing_amount in totals_by_page.get(page, set())
+            and len(cells) >= 7
+            and _parse_amount(cells[4]) == amount
+            and _parse_amount(cells[6]) == billing_amount
+            and (len(cells) <= 5 or not str(cells[5]).strip())
+            and (len(cells) <= 7 or not str(cells[7]).strip())
+        ):
+            transaction["billing_amount"] = amount
+            cells[6] = f"{amount:,}"
+            raw["cells"] = cells
+            raw["line_text"] = " ".join(str(cell).strip() for cell in cells if str(cell).strip())
+            repaired["raw"] = raw
+            repaired["transaction"] = transaction
+            repaired.setdefault("extra_fields", {})
+            if isinstance(repaired["extra_fields"], dict):
+                repaired["extra_fields"]["kb_billing_amount_repair"] = (
+                    f"same-page total {billing_amount:,} was replaced with row amount {amount:,}"
+                )
+        repaired_rows.append(repaired)
+    return repaired_rows
 
 
 def _stable_cell_counts(rows: list[dict[str, Any]]) -> dict[str, int]:

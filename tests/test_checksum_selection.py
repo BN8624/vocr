@@ -283,10 +283,10 @@ def main() -> int:
             for match in kb_leak.summary["checksum"]["auto_match_candidates"]
         )
         leak_rows = _read_jsonl(kb_leak.validated_transactions_path)
-        assert leak_rows[0]["validation"]["needs_review"] is True
-        assert "kb_billing_amount_equals_page_total" in [
-            issue["code"] for issue in leak_rows[0]["validation"]["issues"]
-        ]
+        assert leak_rows[0]["transaction"]["billing_amount"] == 1800
+        assert leak_rows[0]["raw"]["cells"][6] == "1,800"
+        assert leak_rows[0]["validation"]["needs_review"] is False
+        assert leak_rows[0]["extra_fields"]["kb_billing_amount_repair"]
         _write_jsonl(transactions_path, [_transaction(10000)])
 
         revolving = build_validation(

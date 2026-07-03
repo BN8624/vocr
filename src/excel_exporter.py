@@ -39,6 +39,7 @@ def export_excel(
 
     rows = _read_jsonl(validation_output.validated_transactions_path)
     raw_rows = _read_jsonl(source_rows_path) if source_rows_path and source_rows_path.exists() else rows
+    user_rows = _apply_user_raw_corrections(raw_rows, rows)
     workbook = Workbook()
     default_sheet = workbook.active
     workbook.remove(default_sheet)
@@ -52,7 +53,7 @@ def export_excel(
     ws_extra = workbook.create_sheet("추가필드")
     ws_review = workbook.create_sheet("확인필요")
 
-    _write_user_original_table(ws_original, raw_rows, output_dir)
+    _write_user_original_table(ws_original, user_rows, output_dir)
     _write_developer_original_table(ws_original_dev, raw_rows)
     _write_transactions(ws_transactions, rows)
     _write_checksum(ws_checksum, summary)
@@ -84,6 +85,47 @@ def load_excel_export(output_dir: Path, filename: str = "result.xlsx") -> ExcelE
         sheet_names=[],
         transaction_count=0,
         review_count=0,
+    )
+
+
+def _apply_user_raw_corrections(source_rows: list[dict[str, Any]], transaction_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    corrections: dict[tuple[str, str, str], tuple[list[str], list[str]]] = {}
+    for row in transaction_rows:
+        source = _dict(row.get("source"))
+        raw = _dict(row.get("raw"))
+        headers = [str(value) for value in _list(raw.get("header"))]
+        cells = [str(value) for value in _list(raw.get("cells"))]
+        if not headers or not cells:
+            continue
+        corrections[_source_row_key(source)] = (headers, cells)
+
+    corrected_rows: list[dict[str, Any]] = []
+    for row in source_rows:
+        source = _dict(row.get("source"))
+        correction = corrections.get(_source_row_key(source))
+        if not correction:
+            corrected_rows.append(row)
+            continue
+        corrected_headers, corrected_cells = correction
+        copied = json.loads(json.dumps(row, ensure_ascii=False))
+        raw = _dict(copied.get("raw"))
+        source_headers = [str(value) for value in _list(raw.get("header"))]
+        source_cells = [str(value) for value in _list(raw.get("cells"))]
+        if not _same_header(source_headers, corrected_headers) or len(source_cells) != len(corrected_cells):
+            corrected_rows.append(row)
+            continue
+        raw["cells"] = corrected_cells
+        raw["line_text"] = " ".join(str(cell).strip() for cell in corrected_cells if str(cell).strip())
+        copied["raw"] = raw
+        corrected_rows.append(copied)
+    return corrected_rows
+
+
+def _source_row_key(source: dict[str, Any]) -> tuple[str, str, str]:
+    return (
+        str(source.get("page", "")),
+        str(source.get("chunk_id", "")),
+        str(source.get("local_row_index", "")),
     )
 
 
@@ -512,7 +554,7 @@ def _is_amount_header(header: str) -> bool:
     normalized = _normalize_header(header)
     if any(keyword in normalized for keyword in ("금액", "원금", "잔액", "할인", "적립", "포인트")):
         return True
-    amount_keywords = ("금액", "원금", "포인트", "point", "amount", "합계")
+    amount_keywords = ("금액", "원금", "수수료", "이자", "포인트", "point", "amount", "fee", "합계")
     if "현지" in normalized and "금액" in normalized:
         return True
     return any(keyword in normalized.lower() for keyword in amount_keywords)
